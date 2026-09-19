@@ -1,5 +1,5 @@
-name: flutter_netease_music
-description: "A new Flutter project."
+name: oceanus
+description: "Flutter 网易云音乐客户端"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.3.2+1
+version: 1.3.3+1
 
 environment:
   sdk: ^3.12.2
@@ -69,10 +69,25 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  icons_launcher:
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
-
+icons_launcher:
+  android: true
+  ios: true
+  image_path: "assets/oceanus.png"
+  platforms:
+    android:
+      enable: true
+    ios:
+      enable: true
+    linux:
+      enable: true
+    windows:
+      enable: true
+    macos:
+      enable: true
 # The following section is specific to Flutter packages.
 flutter:
 

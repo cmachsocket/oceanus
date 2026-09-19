@@ -1,8 +1,11 @@
-# flutter_netease_music
+<img src="https://cmach.ccwu.cc/oceanus.png" alt="说明" width="20%">
+
+# Oceanus 
+
 
 一个 Flutter 网易云音乐客户端,
 
-底层NodeJs SOK 由 [ncm_api_enhanced](https://github.com/cmachsocket/ncm_api_enhanced) 自行维护,提供异步 API 给 Flutter 调用。
+底层NodeJs Bridge 由 [ncm_api_enhanced](https://github.com/cmachsocket/ncm_api_enhanced) 自行维护,提供异步 API 给 Flutter 调用。
 
 ## 特色
 

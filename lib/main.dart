@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_netease_music/models/Default.dart';
+import 'models/Default.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 
@@ -165,7 +165,7 @@ Future<void> main() async {
     unawaited(_startLyricsServerSafely());
   }
 
-  runApp(const FlutterNeteaseMusicApp());
+  runApp(const OceanusApp());
 }
 
 Future<void> _startLyricsServerSafely() async {
@@ -184,8 +184,8 @@ Future<void> _startLyricsServerSafely() async {
   }
 }
 
-class FlutterNeteaseMusicApp extends StatelessWidget {
-  const FlutterNeteaseMusicApp({super.key});
+class OceanusApp extends StatelessWidget {
+  const OceanusApp({super.key});
 
   @override
   Widget build(BuildContext context) {

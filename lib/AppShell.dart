@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_netease_music/PlayPage/BottomPlayer.dart';
+import '../PlayPage/BottomPlayer.dart';
 import 'package:get/get.dart';
 import 'package:responsive_builder/responsive_builder.dart';
 import 'models/Default.dart';

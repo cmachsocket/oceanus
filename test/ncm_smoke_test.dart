@@ -17,8 +17,8 @@ import 'dart:io' show Platform;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ncm_api_enhanced/ncm_api_enhanced.dart';
-import 'package:flutter_netease_music/sdk/MethodSpec.dart';
-import 'package:flutter_netease_music/sdk/MusicResponse.dart';
+import 'package:oceanus/sdk/MethodSpec.dart';
+import 'package:oceanus/sdk/MusicResponse.dart';
 
 void main() {
   final root = Platform.environment['NCM_BRIDGE_ROOT'];
