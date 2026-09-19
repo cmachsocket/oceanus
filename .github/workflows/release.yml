@@ -171,6 +171,7 @@ jobs:
               -name '*.apk' \
               -o -name '*.zip' \
               -o -name '*.tar.gz' \
+              -o -name '*.deb' \
             \) \
             -exec cp {} staged-release/ \;
 

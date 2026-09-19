@@ -46,6 +46,7 @@ jobs:
             g++ \
             pkg-config \
             libgtk-3-dev \
+            dpkg-dev \
             nodejs \
             ninja-build
 
@@ -134,17 +135,59 @@ jobs:
         run: |
           BUNDLE="build/linux/x64/release/bundle"
           STAGE="release-artifacts/oceanus-linux-x64"
+          DEB_ROOT="release-artifacts/deb-root"
+          APP_VERSION="$(awk '/^version:/ {print $2; exit}' pubspec.yaml)"
 
           rm -rf release-artifacts
           mkdir -p release-artifacts
           mkdir -p "$STAGE"
           cp -r "$BUNDLE"/. "$STAGE"/
 
+          # Build a conventional Debian package alongside the portable bundle.
+          mkdir -p \
+            "$DEB_ROOT/DEBIAN" \
+            "$DEB_ROOT/opt/oceanus" \
+            "$DEB_ROOT/usr/bin" \
+            "$DEB_ROOT/usr/share/applications" \
+            "$DEB_ROOT/usr/share/icons/hicolor/512x512/apps"
+          cp -r "$BUNDLE"/. "$DEB_ROOT/opt/oceanus/"
+          ln -s /opt/oceanus/oceanus "$DEB_ROOT/usr/bin/oceanus"
+          cp assets/oceanus.png \
+            "$DEB_ROOT/usr/share/icons/hicolor/512x512/apps/oceanus.png"
+
+          cat > "$DEB_ROOT/DEBIAN/control" <<EOF
+          Package: oceanus
+          Version: ${APP_VERSION}
+          Section: sound
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Oceanus contributors
+          Depends: libgtk-3-0, libstdc++6
+          Description: Flutter 网易云音乐客户端
+           Oceanus desktop client for NetEase Cloud Music.
+          EOF
+
+          cat > "$DEB_ROOT/usr/share/applications/oceanus.desktop" <<'EOF'
+          [Desktop Entry]
+          Name=Oceanus
+          Comment=NetEase Cloud Music client
+          Exec=/usr/bin/oceanus
+          Icon=oceanus
+          Terminal=false
+          Type=Application
+          Categories=AudioVideo;Audio;Player;
+          StartupWMClass=oceanus
+          EOF
+
+          dpkg-deb --build --root-owner-group \
+            "$DEB_ROOT" "release-artifacts/oceanus_${APP_VERSION}_amd64.deb"
+          rm -rf "$DEB_ROOT"
+
           cd release-artifacts
           tar -czf oceanus-linux-x64.tar.gz \
             oceanus-linux-x64
 
-          sha256sum *.tar.gz > SHA256SUMS
+          sha256sum *.tar.gz *.deb > SHA256SUMS
 
           echo
           echo "=== release artifacts ==="
