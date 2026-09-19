@@ -133,7 +133,7 @@ jobs:
       - name: Package artifact
         run: |
           BUNDLE="build/linux/x64/release/bundle"
-          STAGE="release-artifacts/flutter_netease_music-linux-x64"
+          STAGE="release-artifacts/oceanus-linux-x64"
 
           rm -rf release-artifacts
           mkdir -p release-artifacts
@@ -141,8 +141,8 @@ jobs:
           cp -r "$BUNDLE"/. "$STAGE"/
 
           cd release-artifacts
-          tar -czf flutter_netease_music-linux-x64.tar.gz \
-            flutter_netease_music-linux-x64
+          tar -czf oceanus-linux-x64.tar.gz \
+            oceanus-linux-x64
 
           sha256sum *.tar.gz > SHA256SUMS
 

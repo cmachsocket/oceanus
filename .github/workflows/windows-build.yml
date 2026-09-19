@@ -134,7 +134,7 @@ jobs:
         shell: pwsh
         run: |
           $bundle = "build\windows\x64\runner\Release"
-          $stage  = "release-artifacts\flutter_netease_music-windows-x64"
+          $stage  = "release-artifacts\oceanus-windows-x64"
 
           if (Test-Path release-artifacts) {
             Remove-Item release-artifacts -Recurse -Force
@@ -148,7 +148,7 @@ jobs:
           # 自带 7z, Compress-Archive 也行。Compress-Archive 默认 .zip,
           # 跨平台解压稳。
           Compress-Archive -Path $stage `
-            -DestinationPath "release-artifacts\flutter_netease_music-windows-x64.zip" `
+            -DestinationPath "release-artifacts\oceanus-windows-x64.zip" `
             -CompressionLevel Optimal -Force
 
           Get-ChildItem release-artifacts | Format-Table Name, Length

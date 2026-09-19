@@ -25,7 +25,7 @@
         android:maxSdkVersion="28" />
 
     <application
-        android:label="flutter_netease_music"
+        android:label="oceanus"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <!-- audio_service: 主 Activity 必须改名为 AudioServiceActivity

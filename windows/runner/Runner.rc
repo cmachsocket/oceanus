@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "flutter_netease_music" "\0"
+            VALUE "CompanyName", "com.cmach" "\0"
+            VALUE "FileDescription", "oceanus" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "flutter_netease_music" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "flutter_netease_music.exe" "\0"
-            VALUE "ProductName", "flutter_netease_music" "\0"
+            VALUE "InternalName", "oceanus" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 com.cmach. All rights reserved." "\0"
+            VALUE "OriginalFilename", "oceanus.exe" "\0"
+            VALUE "ProductName", "oceanus" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

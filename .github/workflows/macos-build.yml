@@ -110,7 +110,7 @@ jobs:
       # ------------------------------------------------------------
       - name: Verify application
         run: |
-          APP="build/macos/Build/Products/Release/flutter_netease_music.app"
+          APP="build/macos/Build/Products/Release/oceanus.app"
 
           if [ ! -d "$APP" ]; then
             echo "::error::Application missing at $APP"
@@ -128,19 +128,19 @@ jobs:
 
           echo
           echo "=== Architecture ==="
-          file "$APP/Contents/MacOS/flutter_netease_music"
+          file "$APP/Contents/MacOS/oceanus"
 
           echo
           echo "=== Dependencies ==="
-          otool -L "$APP/Contents/MacOS/flutter_netease_music" || true
+          otool -L "$APP/Contents/MacOS/oceanus" || true
 
       # ------------------------------------------------------------
       # Package
       # ------------------------------------------------------------
       - name: Package artifact
         run: |
-          APP="build/macos/Build/Products/Release/flutter_netease_music.app"
-          STAGE="release-artifacts/flutter_netease_music-macos-arm64"
+          APP="build/macos/Build/Products/Release/oceanus.app"
+          STAGE="release-artifacts/oceanus-macos-arm64"
 
           rm -rf release-artifacts
           mkdir -p "$STAGE"
@@ -149,8 +149,8 @@ jobs:
 
           cd release-artifacts
 
-          tar -czf flutter_netease_music-macos-arm64.tar.gz \
-            flutter_netease_music-macos-arm64
+          tar -czf oceanus-macos-arm64.tar.gz \
+            oceanus-macos-arm64
 
           shasum -a 256 *.tar.gz > SHA256SUMS
 

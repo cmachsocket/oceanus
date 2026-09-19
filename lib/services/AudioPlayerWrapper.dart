@@ -86,7 +86,7 @@ class AudioPlayerService extends GetxController {
   ///   - `fastForwardInterval/rewindInterval: 15s`: 锁屏快进/快退步长。
   ///     比 audio_service 默认的 10s 略大, 更符合"跳到副歌"的使用习惯
   static const AudioServiceConfig _audioServiceConfig = AudioServiceConfig(
-    androidNotificationChannelId: 'com.example.flutter_netease_music.audio',
+    androidNotificationChannelId: 'com.cmach.oceanus.audio',
     androidNotificationChannelName: '网易云音乐播放',
     androidNotificationChannelDescription: '后台播放与媒体控制',
     androidNotificationOngoing: true,

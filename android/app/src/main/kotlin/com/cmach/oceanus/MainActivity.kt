@@ -1,4 +1,4 @@
-package com.example.flutter_netease_music
+package com.cmach.oceanus
 
 import android.os.Bundle
 import com.ryanheise.audioservice.AudioServiceActivity

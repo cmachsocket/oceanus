@@ -1,6 +1,6 @@
 # musiclibrary SDK 使用文档
 
-> 适配本项目 (`flutter_netease_music`) 的网易云音乐 / 酷狗音乐 FFI 绑定包
+> 适配本项目 (`oceanus`) 的网易云音乐 / 酷狗音乐 FFI 绑定包
 > 底层: C (quickJS) + WebKit JSContext → 通过 Dart FFI 调用
 > 仓库: https://github.com/2061360308/NeteaseCloudMusic_PythonSDK
 > 本文档只覆盖 **网易云音乐 (NeteaseCloudMusicApi)** 接口,酷狗 (KugouCloudMusicApi) 同理但本项目暂未使用

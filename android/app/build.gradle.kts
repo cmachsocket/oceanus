@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.flutter_netease_music"
+    namespace = "com.cmach.oceanus"
     compileSdk = flutter.compileSdkVersion
 
     // 强制覆盖 Flutter SDK 写死的 ndkVersion=28.2.13676358,
@@ -16,7 +16,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.flutter_netease_music"
+        applicationId = "com.cmach.oceanus"
         // 继承 Flutter SDK 默认的 24 会让 manifest merger 拒绝合并。
         minSdk = 31
         targetSdk = flutter.targetSdkVersion

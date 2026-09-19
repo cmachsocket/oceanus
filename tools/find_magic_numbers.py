@@ -11,7 +11,7 @@ find_magic_numbers.py - 在 lib/ 下扫描"业务代码里的幻数"
   主要是给 review 用,违反不当 error,只列清单。
 
 用法:
-    cd /path/to/flutter_netease_music
+    cd /path/to/oceanus
     python3 tools/find_magic_numbers.py                 # 扫 lib/ (默认排除 lib/sdk/)
     python3 tools/find_magic_numbers.py --include-sdk  # 把 lib/sdk/ 也算进去
 
