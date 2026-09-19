@@ -563,11 +563,10 @@ packages:
   ncm_api_enhanced:
     dependency: "direct main"
     description:
-      path: "."
-      ref: node
-      resolved-ref: "0175f5478d960b49e24b595198dbdd2872db37c2"
-      url: "https://github.com/cmachsocket/ncm_api_enhanced"
-    source: git
+      name: ncm_api_enhanced
+      sha256: "8c6d4c17bfbef6db9f574ad8efa205b5ec8d4dc3953dabd56717c8c78dc8c781"
+      url: "https://pub.flutter-io.cn"
+    source: hosted
     version: "0.1.0"
   nested:
     dependency: transitive
