@@ -5,11 +5,10 @@ plugins {
 
 android {
     namespace = "com.cmach.oceanus"
-    compileSdk = flutter.compileSdkVersion
+    compileSdkVersion = "android-37.0"
+    buildToolsVersion = "37.0.0"
 
-    // 强制覆盖 Flutter SDK 写死的 ndkVersion=28.2.13676358,
-    // 用系统里已有的 29.0.14206865(避免自动下载/无写权限)。
-
+    ndkVersion = "30.0.16248370"
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

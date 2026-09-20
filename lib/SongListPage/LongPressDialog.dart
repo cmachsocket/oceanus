@@ -7,6 +7,7 @@ import '../models/LibrarySummary.dart';
 import '../models/Song.dart';
 import '../sdk/AuthController.dart';
 import '../services/AudioPlayerWrapper.dart';
+import '../services/DownloadService.dart';
 import '../services/repositories/LibraryRepository.dart';
 import '../services/repositories/PlaylistRepository.dart';
 
@@ -97,6 +98,13 @@ class _MainMenu extends StatelessWidget {
           leading: const Icon(Icons.queue_music),
           title: const Text('添加到播放列表'),
           onTap: controller.addToQueue,
+        ),
+
+        // 下载
+        ListTile(
+          leading: const Icon(Icons.download_outlined),
+          title: const Text('下载'),
+          onTap: controller.downloadSong,
         ),
 
         // 从歌单中删除：仅自建歌单内显示
@@ -239,6 +247,8 @@ class LongPressDialogController extends GetxController {
   final AuthController _auth = Get.find<AuthController>();
 
   final AudioPlayerService _player = Get.find<AudioPlayerService>();
+
+  final DownloadService _downloader = Get.find<DownloadService>();
 
   // ---- 状态 ----------------------------------------------------------------
 
@@ -423,6 +433,49 @@ class LongPressDialogController extends GetxController {
       Get.back<void>();
 
       _toast('添加失败: $e');
+    }
+  }
+
+  /// 下载当前歌曲。
+  Future<void> downloadSong() async {
+    if (isBusy.value) return;
+
+    isBusy.value = true;
+
+    try {
+      final ok = await _downloader.download(song);
+
+      // ------------------------------------------------------------
+      // 关键：
+      // 先结束 busy，再关闭 Dialog。
+      // ------------------------------------------------------------
+      isBusy.value = false;
+
+      Get.back<void>();
+
+      if (ok) {
+        _toast('已加入下载队列');
+      } else {
+        _toast('下载失败');
+
+        if (kDebugMode) {
+          debugPrint(
+            '[LongPressDialog] download failed: '
+            'songId=${song.id}',
+          );
+        }
+      }
+    } catch (e) {
+      // 异常情况下同样先恢复 Rx。
+      isBusy.value = false;
+
+      if (kDebugMode) {
+        debugPrint('[LongPressDialog] downloadSong failed: $e');
+      }
+
+      Get.back<void>();
+
+      _toast('下载失败: $e');
     }
   }
 
