@@ -93,11 +93,11 @@ class ThemeController extends GetxController {
           },
         ).showPickerDialog(
           Get.context!,
-          constraints: const BoxConstraints(
-            minHeight: 460,
-            minWidth: 300,
-            maxWidth: 320,
-          ),
+          // constraints: const BoxConstraints(
+          //   minHeight: 460,
+          //   minWidth: 300,
+          //   maxWidth: 320,
+          // ),
         );
 
     if (confirmed) {
