@@ -7,9 +7,8 @@ android {
     namespace = "com.cmach.oceanus"
     compileSdk = flutter.compileSdkVersion
 
-    // 强制覆盖 Flutter SDK 写死的 ndkVersion=28.2.13676358,
-    // 用系统里已有的 29.0.14206865(避免自动下载/无写权限)。
-    ndkVersion = 30.0.16248370
+
+    ndkVersion = "30.0.16248370"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
