@@ -162,7 +162,7 @@ jobs:
           Priority: optional
           Architecture: amd64
           Maintainer: Oceanus contributors
-          Depends: libgtk-3-0, libstdc++6
+          Depends: libgtk-3-0, libstdc++6, libmpv2, nodejs
           Description: Flutter 网易云音乐客户端
            Oceanus desktop client for NetEase Cloud Music.
           EOF
