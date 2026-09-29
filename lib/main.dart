@@ -1,11 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'models/Default.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'AppShell.dart';
 import 'AppShellController.dart';
@@ -27,14 +26,23 @@ import 'services/PlaylistEventsController.dart';
 import 'services/repositories/LibraryRepository.dart';
 import 'sdk/AuthController.dart';
 import 'services/DownloadService.dart';
+import 'services/TrayController.dart';
 import 'theme/ThemeController.dart';
 import 'widgets/netease_image.dart' show NeteaseHttpOverrides;
+import 'models/Default.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // 全局 HttpClient UA 伪装:NetEase CDN 把 Dart 默认 UA 拉黑
   // (Image.network 的 headers 参数在 Android 不一定生效,直接 override 最稳)
   HttpOverrides.global = NeteaseHttpOverrides();
+  // 桌面平台初始化 window_manager:必须在 TrayController 注册之前 (TrayController
+  // 用 windowManager.hide/show 切主窗口可见性 + macOS 上拦截关闭信号)。
+  // 移动端 / Web 直接跳过(platform_interface 内部对不支持的平台抛
+  // MissingPluginException,这里走 if-guard 防御)。
+  if (Platform.isLinux || Platform.isMacOS || Platform.isWindows) {
+    await windowManager.ensureInitialized();
+  }
   await GetStorage.init();
   Get.put<ThemeController>(ThemeController(), permanent: true);
   // 网易云 SDK:启动 NcmApi (embedded node bridge) + 恢复持久化 cookie + 拉匿名 cookie。
@@ -157,6 +165,20 @@ Future<void> main() async {
   // 订阅立刻从 wrapper.snapshot 镜像一次), 跨路由切换重建不影响 Player UI
   // (Obx 读到 wrapper 实时状态), 跟 LyricsController 解耦。
   Get.put<LyricsController>(LyricsController(), permanent: true);
+
+  // ---- 系统托盘 (桌面端) -------------------------------------------------------
+  // 必须在 AudioPlayerService 注册之后:TrayController 依赖 wrapper (调
+  // skipToNext/Previous/play/pause/toggleFavorite)。TrayController 内部
+  // _isSupportedPlatform 守卫,移动端 / Web 走 no-op,不创建 TrayIcon,
+  // 不订阅 stream,零开销。
+  //
+  // permanent: false (默认) 即可:这是顶层基础设施,GetX 智能管理在 app 退出
+  // 时随 GetX 容器一起清理,onClose 会 dispose TrayIcon/Menu 释放原生句柄。
+  // 如果后面需要从某个 UI 主动 Get.delete<TrayController>() 重置,用
+  // Get.delete(force: true) 会触发 onClose。
+  if (Platform.isLinux || Platform.isMacOS || Platform.isWindows) {
+    Get.put<TrayController>(TrayController());
+  }
 
   // 本地 HTTP 服务 (port 41830):给外部 lyric 客户端 (YesPlayMusic 桌面端)
   // 暴露 /local-asset/player 端点。依赖 wrapper + LyricsRepository 都在上面
