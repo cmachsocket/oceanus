@@ -80,11 +80,18 @@ class LyricsController extends GetxController {
     );
     lyricShowMode = initialMode.obs;
     final initial = _audio.snapshot.value;
-    _lastSong = initial.currentSong;
     _lastPosition = initial.position;
+    // ⚠️ `_lastSong` **故意留 null**,不要填 initial.currentSong。
+    //
+    // [_onSnapshot] 是靠"歌变了"(`song?.id != _lastSong?.id`)触发歌词加载的,
+    // 下面那行 `_onSnapshot(initial)` 就是为了补上"启动这一刻的快照"
+    // —— 因为 wrapper 在 main.dart 里注册在 LyricsController **之前**,
+    // 启动恢复出来的那首歌早就在 snapshot 里了,变化事件已经发过,没人再通知。
+    //
+    // 如果先把 _lastSong 填成 initial.currentSong,首次 diff 恒为 false,
+    // 启动时缓存的那首歌就永远不加载歌词 —— 表现得像"歌词丢了",
+    // 非得手动切一次歌才出来。
     _snapshotSub = _audio.snapshot.stream.listen(_onSnapshot);
-    // 启动时主动触发一次(可能 wrapper 启动比 LyricsController 晚,
-    // 初始 snapshot.currentSong 已经有值)
     _onSnapshot(initial);
     // 点击歌词行 → 直接 seek wrapper (不走 PlayerController facade)
     lyricController.setOnTapLineCallback(_audio.seek);
@@ -291,14 +298,152 @@ class LyricsController extends GetxController {
     // 也才配得上,否则 yrc 的自动打轴会差几百毫秒导致翻译全空
     final aligned = alignLyrics(lyric, Lyrics(lrc: lyric.lrc));
     lyricController.loadLyric(
-      aligned.yrc ?? aligned.lrc ?? '',
+      _mainLyric(aligned),
       translationLyric: switch (lyricShowMode.value) {
         LyricShowMode.original => null,
-        LyricShowMode.translation => aligned.tlyric,
-        LyricShowMode.romaji => aligned.romalrc,
+        LyricShowMode.translation => _translation(aligned),
+        LyricShowMode.romaji => _nonBlank(aligned.romalrc),
       },
     );
   }
+
+  /// 翻译歌词(romaji 同理):非空白才给,并且**先把时间轴对齐到 lrc**。
+  String? _translation(Lyrics aligned) {
+    final t = _nonBlank(aligned.tlyric);
+    if (t == null) return null;
+    return _alignTranslationToLrc(_nonBlank(aligned.lrc), t);
+  }
+
+  /// 把 tlyric 的行时间戳改写成主歌词(lrc)的时间戳 —— **精度无关**。
+  ///
+  /// flutter_lyric 两条解析路径配翻译的方式**不一样**:
+  /// - `YrcParser`(歌有逐字版):`LrcParser.findTranslation(map, ms, 10)`
+  ///   —— **±10ms 容差**
+  /// - `LrcParser`(歌没有逐字版,主歌词就是 lrc):
+  ///   `translationMap[duration.inMilliseconds]` —— **精确查表,零容差**
+  ///
+  /// 而 lrc / tlyric 的小数位数**由上传者决定,2 位 3 位都有**(tlyric 常见 3 位,
+  /// lrc 也见过 3 位的,同一首歌里两者位数不一致也常见):
+  /// lrc `[00:31.18]`=31180,tlyric `[00:31.184]`=31184 → 差 4ms,
+  /// 走 lrc 的歌就**整首一个 key 都查不到**。而走哪条路取决于该歌有没有逐字版,
+  /// 症状就是"这一首有翻译、下一首没有"。
+  ///
+  /// ## 做法:不去猜精度,直接把 tlyric 落到 lrc 的时间轴上
+  ///
+  /// 主歌词本来就在 lrc 时间轴上(有 yrc 时 [alignLyrics] 已经用 lrc 覆写过 yrc
+  /// 的行时间),两边一落到同一批毫秒值上,精确查表和 ±10ms 容差都能命中。
+  ///
+  /// 行 → 时间的对应关系:
+  /// - **行数一致**:按行号一一对应。翻译逐行对应原文,比按时间猜可靠 ——
+  ///   哪怕上传者整体时间轴有偏移,配上的文本也是对的。
+  /// - **行数不一致**:退化成**时间就近匹配**([_translationToleranceMs] 内取最近
+  ///   的、且没被占用的)。宁可不配,也不能把翻译挂到错误的行上 —— 错配比没有
+  ///   翻译更糟。
+  String _alignTranslationToLrc(String? lrc, String tlyric) {
+    if (lrc == null || lrc.trim().isEmpty) return tlyric;
+
+    // lrc 侧:每个"带时间戳的行"取**第一个**时间戳
+    final lrcTimes = <int>[];
+    for (final line in lrc.split('\n')) {
+      final m = _lrcTimeRe.firstMatch(line);
+      if (m != null) lrcTimes.add(_lrcTimeMs(m));
+    }
+    if (lrcTimes.isEmpty) return tlyric;
+
+    // tlyric 侧:记下哪些行带时间戳(标签行 / 空行原样保留,不参与配对)
+    final lines = tlyric.split('\n');
+    final slots = <int>[];
+    final stamps = <int>[];
+    for (var i = 0; i < lines.length; i++) {
+      final m = _lrcTimeRe.firstMatch(lines[i]);
+      if (m != null) {
+        slots.add(i);
+        stamps.add(_lrcTimeMs(m));
+      }
+    }
+    if (slots.isEmpty) return tlyric;
+
+    final targets = _matchTranslationSlots(lrcTimes, stamps);
+
+    final out = List<String>.of(lines);
+    // 从后往前替换,前面的替换才不会顶掉后面的下标
+    for (var k = slots.length - 1; k >= 0; k--) {
+      final t = targets[k];
+      if (t == null) {
+        // 匹配不上 → 丢掉。留着它就可能按自己的时间去误挂到别的行上。
+        out[slots[k]] = '';
+        continue;
+      }
+      final line = out[slots[k]];
+      var rewritten = line;
+      for (final tag in _lrcTimeRe.allMatches(line).toList().reversed) {
+        rewritten = rewritten.replaceRange(tag.start, tag.end, _formatLrcMs(t));
+      }
+      out[slots[k]] = rewritten;
+    }
+    return out.where((l) => l.trim().isNotEmpty).join('\n');
+  }
+
+  /// tlyric 的小数是 2 位还是 3 位全看上传者,只要落进这个容差就还能配上。
+  /// 250ms 是权衡:同一首歌 lrc/tlyric 的偏移正常远小于此,而相邻两行歌词通常
+  /// 间隔 ≥500ms,不会认错行。
+  static const _translationToleranceMs = 250;
+
+  /// 给每个 tlyric 行决定"要落到的 lrc 时间"(null = 丢弃这一行)。
+  List<int?> _matchTranslationSlots(List<int> lrcTimes, List<int> stamps) {
+    // 行数一致 → 按行号一一对应
+    if (lrcTimes.length == stamps.length) {
+      return List<int?>.generate(stamps.length, (i) => lrcTimes[i]);
+    }
+
+    // 行数不一致 → 时间就近匹配,每个 lrc 时间只能被用一次
+    final taken = <int>{};
+    final out = List<int?>.filled(stamps.length, null);
+    var cursor = 0; // 单调前进,不做全局回溯
+    for (var i = 0; i < stamps.length; i++) {
+      var best = -1;
+      var bestDelta = _translationToleranceMs + 1;
+      for (var k = cursor; k < lrcTimes.length; k++) {
+        if (taken.contains(k)) continue;
+        final delta = (lrcTimes[k] - stamps[i]).abs();
+        if (delta < bestDelta) {
+          bestDelta = delta;
+          best = k;
+        }
+      }
+      if (best >= 0 && bestDelta <= _translationToleranceMs) {
+        taken.add(best);
+        out[i] = lrcTimes[best];
+        cursor = best;
+      }
+    }
+    return out;
+  }
+
+  /// ms → `[mm:ss.SSS]`。flutter_lyric 的 LrcParser 小数不足 3 位会右侧补 0,
+  /// 所以这里固定写 3 位,解析回来是同一个毫秒值。
+  String _formatLrcMs(int ms) {
+    final m = ms ~/ 60000;
+    final s = (ms % 60000) ~/ 1000;
+    final cs = ms % 1000;
+    return '[${m.toString().padLeft(2, '0')}:'
+        '${s.toString().padLeft(2, '0')}.'
+        '${cs.toString().padLeft(3, '0')}]';
+  }
+
+  /// 主歌词选 yrc 还是 lrc。
+  ///
+  /// **必须用"非空白"判断,不能用 `??`**:[LyricsRepository] 把上游缺失的字段
+  /// 规范成 **空字符串**(`(r.body['yrc']?['lyric'])?.toString() ?? ''`),不是 null。
+  /// 所以没有逐字版的歌,`aligned.yrc == ''` —— 而 `'' ?? fallback` 在 Dart 里
+  /// **返回空字符串本身**,于是 `loadLyric('')` → flutter_lyric 四个 parser
+  /// 全部 isMatch 失败 → FallbackParser 返回空 LyricModel → 界面一片空白,
+  /// 明明 lrc 里有词。
+  String _mainLyric(Lyrics aligned) =>
+      _nonBlank(aligned.yrc) ?? _nonBlank(aligned.lrc) ?? '暂无歌词';
+
+  /// 空字符串 → null。给 flutter_lyric 的可选参数用(空串会走一遍无意义的解析)。
+  String? _nonBlank(String? s) => (s == null || s.trim().isEmpty) ? null : s;
 }
 
 /// yrc 逐字行里匹配到的一个 `(start,duration,zero)字` 片段

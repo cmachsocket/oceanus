@@ -63,6 +63,7 @@ class Player extends StatelessWidget {
           Obx(() {
             return controller.center.value == CenterPage.lyric
                 ? FloatingActionButton(
+                    heroTag: 'lyricModeSwitch',
                     onPressed: lyricController.switchLyric,
                     child:
                         // exhaustive switch: enum 加新 page 时编译器报错,不会走错 icon
@@ -79,6 +80,7 @@ class Player extends StatelessWidget {
                 : const SizedBox.shrink();
           }),
           FloatingActionButton(
+            heroTag: 'centerPageSwitch',
             onPressed: controller.switchPage,
             child: Obx(() {
               // exhaustive switch: enum 加新 page 时编译器报错,不会走错 icon
