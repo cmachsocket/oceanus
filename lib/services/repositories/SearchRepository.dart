@@ -7,13 +7,7 @@ import '../../sdk/ApiCall.dart';
 import '../../models/ApiException.dart';
 import '../../sdk/NeteaseApi.dart';
 
-/// Search type 参数(参考 netease_cloud_music_api /search 接口)
-///
-/// 只取这四个(用户限定):
-/// - 1 单曲
-/// - 10 专辑
-/// - 100 艺人
-/// - 1000 歌单
+/// `/search` 的 type 参数,以及响应 `result.<resultKey>` 的取值。
 enum SearchType {
   song(1, 'songs', '单曲'),
   album(10, 'albums', '专辑'),
@@ -22,37 +16,20 @@ enum SearchType {
 
   const SearchType(this.typeId, this.resultKey, this.label);
 
-  /// 对应网易云 search API 的 type 参数
   final int typeId;
-
-  /// /search 响应 `result.<key>` 的 key
   final String resultKey;
-
-  /// UI 显示标签(SegmentedButton 上用)
   final String label;
 }
 
-/// Search repository —— 集中 `/search` + 4 种 type 字段解析
-///
-/// 把散落在 [SearchController.search] + [_parseAndStore] 里的
-/// `apiCall(() => api.raw.search(...))` + `result[type]key` 提取 +
-/// `Song/Album/Artist/SearchPlaylistSummary` 解析集中到这里。
-///
-/// - **不做** RxList / isLoading / snackbar / 竞争处理 —— 这些是业务流程,
-///   保留在 [SearchController]。
-/// - **只做**: 调 API + 解析 + 返回强类型结果。
+/// Search repository:只调 `/search` + 解析。RxList / isLoading / snackbar /
+/// 竞争处理这些业务流程归 [SearchController]。
 class SearchRepository extends GetxService {
   final NeteaseApi _api;
 
   SearchRepository(this._api);
 
-  /// 拉搜索结果。返回 null: API 失败 / 响应结构缺失。
-  ///
-  /// API: `/search?keywords=X&type=Y&limit=Z`, 响应:
-  /// ```
-  /// { result: { songs|albums|artists|playlists: [...] } }
-  /// ```
-  /// 顶层 result 是 Map, 内部根据 type 走不同 key。
+  /// 拉搜索结果,null = API 失败或响应结构缺失。
+  /// 响应形如 `{ result: { songs|albums|artists|playlists: [...] } }`。
   Future<SearchResult?> search({
     required String keywords,
     required SearchType type,
@@ -60,14 +37,11 @@ class SearchRepository extends GetxService {
   }) async {
     try {
       final r = await apiCall(
-        () => _api.callApi(
-          'search',
-          <Object?>[
-            keywords,
-            type.typeId.toString(),
-            limit.toString(),
-          ],
-        ),
+        () => _api.callApi('search', <Object?>[
+          keywords,
+          type.typeId.toString(),
+          limit.toString(),
+        ]),
         what: '搜索',
       );
       final result = r.body['result'];
@@ -89,7 +63,7 @@ class SearchRepository extends GetxService {
                 .toList(),
           );
         case SearchType.artist:
-          // 搜索接口的 artists[] 项是直接 artist(无 wrap),跟 /artists 接口不同
+          // 搜索接口的 artists[] 项是裸 artist,没有 /artists 接口那层 wrap
           return SearchResult(
             artists: items
                 .map(
@@ -114,9 +88,7 @@ class SearchRepository extends GetxService {
   }
 }
 
-/// 搜索结果 —— 4 种 type 各自一份 nullable List
-///
-/// 调用方根据 [SearchType] 读对应字段 (其他字段为 null)。
+/// 4 种 type 各自一份 nullable List,调用方按 [SearchType] 读对应字段。
 class SearchResult {
   final List<Song>? songs;
   final List<Album>? albums;
@@ -126,8 +98,8 @@ class SearchResult {
   const SearchResult({this.songs, this.albums, this.artists, this.playlists});
 }
 
-/// 搜索结果里的歌单摘要(轻量,跟 LibraryController 的 PlaylistSummary
-/// 字段有重合但来源不同 —— 搜索结果没有 userId 等 user-only 字段,放一起会污染)
+/// 搜索结果里的歌单摘要。不跟 LibraryController 的 PlaylistSummary 合并 ——
+/// 搜索结果没有 userId 等 user-only 字段,放一起会污染。
 class SearchPlaylistSummary {
   final String id;
   final String name;
@@ -143,8 +115,7 @@ class SearchPlaylistSummary {
     required this.creatorName,
   });
 
-  /// 网易云 /search?type=1000 返回的 `result.playlists[]` 元素:
-  /// - id, name, coverImgUrl, trackCount, creator.nickname
+  /// `/search?type=1000` 的 `result.playlists[]` 元素。
   factory SearchPlaylistSummary.fromNeteaseJson(Map<String, dynamic> json) {
     final creator = json['creator'] is Map
         ? Map<String, dynamic>.from(json['creator'] as Map)

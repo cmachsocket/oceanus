@@ -9,33 +9,15 @@ import 'LikedController.dart';
 import 'LocalRedirectServer.dart';
 import 'repositories/SongRepository.dart';
 
-/// ---- 后台播放 handler (audio_service + just_audio 桥接) ------------------------
+/// 后台播放 handler:audio_service ↔ just_audio 桥接。
 ///
-/// 职责:
+/// 把 [_audio] 的原生 stream 转发给 audio_service 广播(见 [_wireAudioStreams]),
+/// 并把系统控制翻译成 just_audio 操作。
 ///
-///   1. 订阅 [_audio] 的原生 stream,转发给 audio_service 广播:
-///        - playerStateStream       → playbackState.add()
-///        - sequenceStateStream     → mediaItem / queue / currentIndex / playOrder
-///        - durationStream          → mediaItem.add(更新 duration)
-///        - positionStream          → playbackState.add(更新 position)
-///        - bufferedPositionStream  → playbackState.add(更新 bufferedPosition)
-///        - errorStream             → loadError 状态
-///   2. 接收 audio_service 系统控制 (play/pause/seek/skip/customAction)
-///      并翻译成 just_audio 操作
-///   3. **队列 / 当前索引 / 播放顺序 / shuffle 全部由 just_audio 持有**
-///      (setAudioSources + currentIndex + LoopMode + shuffleModeEnabled),
-///      handler 只做翻译,不再维护自己的 [_queue] / [_currentIndex] /
-///      [_playOrder] / [_shuffleOrder]
-///
-/// 设计原则:
-///
-///   - **队列只有一个真相**: [_audio] 的 audioSources。每个 AudioSource 的
-///     `tag` 存对应的 [MediaItem],所以 UI 列表 / audio_service 的 queue / 持久化
-///     都能从 just_audio 反查回来,不需要第二份副本去同步(旧实现里 `_queue` 和
-///     just_audio 的 playlist 各存一份,是这类 bug 的根源)
-///   - **不持有派生状态**: isLiked / currentSong 都不在这里存,由上层包装器从 stream 聚合
-///   - **降级要显式**: 本机 302 server 起不来时不能静默丢歌,取不到地址的项会被
-///     剔除并打日志
+/// **队列 / 当前索引 / 循环全部由 just_audio 持有**(setAudioSources +
+/// currentIndex + LoopMode),每个 AudioSource 的 `tag` 存对应的 [MediaItem],
+/// UI 列表 / audio_service queue / 持久化都从这里反查。shuffle 排列例外,原因见
+/// [_shuffleOrder]。
 class AudioPlayerHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
   AudioPlayerHandler({
@@ -54,7 +36,6 @@ class AudioPlayerHandler extends BaseAudioHandler
     _initialIndex = initialIndex;
     _initialMode = initialMode;
 
-    // 初始 state: 启用 seek 系列系统手势 + 三按钮基础控件
     playbackState.add(
       playbackState.value.copyWith(
         controls: _baseControls,
@@ -67,23 +48,16 @@ class AudioPlayerHandler extends BaseAudioHandler
       ),
     );
 
-    // queue / mediaItem 是 BehaviorSubject (带当前值 replay):
-    // wrapper 订阅后立即拿到初始值, 真相状态在 handler 落地
-    //
-    // ⚠️ **这里必须是 growable 的 `<MediaItem>[]`,不能写 `const []`**:
-    // audio_service 的 QueueHandler.updateQueue 实现是
+    // ⚠️ queue 种子**必须 growable,不能 `const []`**:audio_service 的
+    // QueueHandler.updateQueue 是
     //     queue.add(queue.nvalue!..replaceRange(0, nvalue.length, newQueue))
-    // —— 它**原地修改 BehaviorSubject 缓存的 nvalue**。nvalue 就是构造时这里
-    // add 进去的那个实例,一旦是 const list,后续**每一次** super.updateQueue
-    // 都会抛 "Cannot remove from an unmodifiable list"(真机崩过: unhandled
-    // exception 直接打断 AudioPlayerService.init 的 await 链)。
-    // 老实现传的是 `_queue.toList()`(growable 副本),所以一直没踩到这个坑。
+    // 原地改 BehaviorSubject 缓存的 nvalue,而 nvalue 就是这里 add 的实例。
+    // 一旦是 const,之后每次 super.updateQueue 都抛
+    // "Cannot remove from an unmodifiable list"(真机崩过)。
     queue.add(<MediaItem>[]);
     mediaItem.add(null);
-    // playOrder 是 broadcast (无 replay): handler 构造时 emit 一次初始值,
-    // wrapper 订阅后立刻拿到 (或在 onInit 里调 refreshPlayOrder 兜底)。
-    // 之所以不用 BehaviorSubject 是因为 mode 只有 3 个枚举值, 没有"replay
-    // 历史"语义, broadcast 更轻量。
+    // playOrder 用 broadcast(无 replay):mode 只有 3 个枚举值,没有"回放历史"的
+    // 语义,构造时 emit 一次让订阅者立刻拿到。
     _playOrderCtrl.add(initialMode);
 
     _wireAudioStreams();
@@ -94,21 +68,15 @@ class AudioPlayerHandler extends BaseAudioHandler
   final SongRepository _songRepo;
   final LikedController _likedService;
 
-  /// 全局音质偏好 (用户设置)。
-  ///
-  /// **只在降级路径直接读**:本机 302 server 开启时,音质是**请求那一刻**由
-  /// server 现读的(地址里不带 `?q=`)—— 队列是一次性建好的,构建时把音质烤进
-  /// 地址会导致"改了音质但队列里还是旧音质"。
+  /// 全局音质偏好。**只在降级路径直接读**:server 开启时音质是请求那一刻由
+  /// server 现读的(地址里不带 `?q=`)—— 队列是一次性建好的,把音质烤进地址
+  /// 会导致"改了音质但队列里还是旧音质"。
   final SettingsController _settings;
 
-  /// 本机 302 定向 server —— 把 [MediaItem] 翻译成 just_audio 的 AudioSource。
-  ///
-  /// 开启时队列里存的是 `http://localhost:<port>/s/<songId>/xxx` 这种稳定地址,
-  /// 真地址由 server 在 prepare 那一刻解析并 302 出去 —— 网易云直链只有 ~20min
-  /// 寿命,提前解析存进队列的话排到队尾必过期。
-  ///
-  /// server 没起来 (端口被占 / web) 时 [LocalRedirectServer.enabled] 为 false,
-  /// [_buildSources] 会退回"一次性批量解析真地址"。
+  /// 把 [MediaItem] 翻译成 just_audio AudioSource。本机 302 server 开启时
+  /// 队列里存的是 `http://127.0.0.1:<port>/s/<songId>/xxx` 这种稳定地址,真地址
+  /// 在 prepare 那一刻才解析 —— 网易云直链只有 ~20min 寿命,提前解析进队列
+  /// 排到队尾必过期。起不来时 [_buildSources] 退回"一次性批量解析真地址"。
   final LocalRedirectServer _redirect;
 
   final AudioPlayer _audio = AudioPlayer();
@@ -458,8 +426,7 @@ class AudioPlayerHandler extends BaseAudioHandler
     await _audio.setAudioSources(sources, initialIndex: index);
     // 等长替换/增删都会让长度判变失效或漏判,强制下一条通知重发 queue
     _invalidateSequenceCache();
-    // just_audio 0.10 的 setAudioSources 不会自动出声,必须显式 play()
-    // (老实现里是 _playAt 末尾的 `await _audio.play()`)
+    // setAudioSources 不会自动出声,必须显式 play()
     await _audio.play();
     // 队列换了 → shuffle 排列必须重洗(长度对不上旧排列),并把当前这首钉在首位
     if (_shuffleOrder.isNotEmpty) _rebuildShuffleOrder();
@@ -751,8 +718,8 @@ class AudioPlayerHandler extends BaseAudioHandler
   /// 两条路(见 [LocalRedirectServer]):
   /// - **server 开启**:每首歌只生成一个稳定地址,**零网络请求**;真地址在
   ///   播放器 prepare 那一刻由 server 现查 + 302。
-  ///   注意地址里**不带音质**:队列是一次性建好的,音质要是烤进地址,用户在
-  ///   播放中途改音质就不会生效(老实现是每次切歌现读 `_settings`)。
+  ///   音质在建队列时读一次烤进 `?q=`,所以播放中途改音质不影响已建好的队列,
+  ///   要换音质得重建队列。
   /// - **降级**(端口被占 / web 不支持 dart:io):只能一次性把真地址全解析出来,
   ///   用 `/song/url/v1` 的批量参数一次问完(而不是 N 首歌 N 次请求)。
   ///   取不到地址的项(VIP / 地区限制 / 未登录)**直接剔除**,并把 [startIndex]

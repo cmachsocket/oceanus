@@ -1,16 +1,10 @@
 // SPDX-License-Identifier: MIT
 //
-// Global NCM API facade — the single entry point for the repository /
-// UI layer. Replaces the previous isolate-based architecture:
-//   - Old: NeteaseApi → ApiClient (RPC over SendPort) → ApiWorker (worker
-//     isolate) → musiclibrary (FFI to quickJS).
-//   - New: NeteaseApi → NcmApi (in-process) → node bridge (NDJSON over
-//     stdin/stdout or platform channel).
+// 网易云 API facade —— 仓库层 / UI 层的唯一入口。
 //
-// The worker isolate is gone because NCM API Enhanced talks to node
-// via IPC, which is already async and doesn't block the platform
-// thread. Keeping the facade simple means cookie state lives here in
-// the main isolate, which simplifies the persisted-cookie story too.
+// 链路:NeteaseApi → NcmApi(进程内)→ 内嵌 node bridge(NDJSON over
+// stdin/stdout 或 platform channel)。没有 worker isolate:IPC 本身已经异步,
+// 不需要再套一层。cookie 状态因此直接活在主 isolate。
 
 import 'dart:async';
 
@@ -23,33 +17,21 @@ import 'ApiCall.dart';
 import 'MethodSpec.dart';
 import 'MusicResponse.dart';
 
-/// 全局网易云 API facade — 仓库层 / UI 层的入口
+/// 持有 [NcmApi] 实例 + cookie 状态(内存 + GetStorage 持久化)。
+/// 仓库层调 `callApi(method, [位置参数])`,由 [positionalToQuery] 翻成 query dict。
 ///
-/// **职责**(2026-09 改造):
-/// - 持有 [NcmApi] 实例(主 isolate 内,无 RPC)
-/// - 持有 cookie 状态 + 持久化(主 isolate 直接 GetStorage 读写)
-/// - 仓库层调 `callApi(method, args)`,args 是 positional list,我们用
-///   [positionalToQuery] 翻译成 NCM API Enhanced 的 query dict
-/// - 启动期负责拉匿名 cookie、灌回持久化 cookie
-///
-/// **生命周期**:在 [main] 里 `await initNeteaseApi()` — 内部 start NcmApi +
-/// 创建 facade + 灌回 cookie。仓库层 / UI 层拿 `Get.find<NeteaseApi>()`。
+/// main 里 `await initNeteaseApi()` 启动,各处用 `Get.find<NeteaseApi>()` 拿。
 class NeteaseApi extends GetxService {
   static const _loggedInKey = 'netease_logged_in_v1';
   static const _cookieStorageKey = 'netease_cookie_v1';
   static const _anonCookieStorageKey = 'netease_anon_cookie_v1';
 
-  /// The embedded node bridge.
   final NcmApi _ncm = NcmApi();
 
-  /// GetStorage handle. We use a single box (`'default'`) for all
-  /// cookie / logged-in state, matching the layout the worker used to
-  /// own. The migration is transparent — existing entries from
-  /// before the migration are read by these keys as-is.
+  /// cookie / 登录态统一放 default box,持久化的 key 见下面的常量。
   GetStorage get _box => GetStorage();
 
-  /// Currently applied identity cookie (login). Held in memory for
-  /// synchronous reads; persisted in GetStorage on changes.
+  /// 已生效的身份 cookie,内存里同步读,变更时写盘。
   Map<String, String> _authCookie = const {};
   Map<String, String> _anonCookie = const {};
 
@@ -179,10 +161,8 @@ class NeteaseApi extends GetxService {
     _box.write(_loggedInKey, false);
   }
 
-  /// 主 isolate 直接读 (no RPC).
   Future<bool> isLoggedIn() async => _box.read<bool>(_loggedInKey) ?? false;
 
-  /// 主 isolate 直接读 GetStorage.
   Future<Map<String, String>> getSavedAuthCookie() async {
     final raw = _box.read<Map>(_cookieStorageKey);
     if (raw == null || raw.isEmpty) return const {};
@@ -232,16 +212,12 @@ class NeteaseApi extends GetxService {
     }
   }
 
-  /// 仓库层闭包内部调用。
-  ///
-  /// `method` SDK 方法名 (e.g. 'playlist_detail'), `params` 参数列表
-  /// (positional, 与原 ApiWorker 的 case 表一致 — 见 method_spec.dart).
+  /// 仓库层调用。`method` 是 SDK 方法名(如 'playlist_detail'),`params` 是
+  /// 位置参数列表(映射见 MethodSpec.methodSpecs)。
   Future<MusicResponse> callApi(String method, List<Object?> params) {
     return _callRaw(method, params);
   }
 
-  /// Internally used by `callApi` and the typed wrappers. Translates
-  /// positional args to a query dict using [positionalToQuery].
   Future<MusicResponse> _callRaw(String method, List<Object?> params) async {
     final query = positionalToQuery(method, params);
     // Attach the held identity cookie so upstream can recognise the caller.
@@ -271,10 +247,8 @@ class NeteaseApi extends GetxService {
     super.onClose();
   }
 
-  /// 解析 `Set-Cookie` 字符串为 key/value map。
-  ///
-  /// 与原 ApiWorker / NeteaseApi 中的实现一致 — 跳过非身份字段
-  /// (`Path`, `Expires`, ...),只保留 PascalCase 的 cookie 名。
+  /// 解析 `Set-Cookie` 字符串为 key/value map。跳过 `Path` / `Expires` 这类
+  /// 非身份字段,只保留 PascalCase 的 cookie 名。
   static Map<String, String> parseCookieString(String s) {
     final result = <String, String>{};
     if (s.isEmpty) return result;

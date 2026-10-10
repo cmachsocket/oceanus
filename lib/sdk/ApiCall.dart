@@ -3,13 +3,8 @@ import 'dart:async';
 import '../models/ApiException.dart';
 import 'MusicResponse.dart';
 
-/// 调用一次后端接口 + 业务检查
-///
-/// - 包 try/catch,把 RPC / 解析 / 网络异常转成 [ApiException]
-/// - 包 [checkResponse],检查 HTTP status + 业务 code
-///
-/// **签名**(2026-09 改造):闭包内部 `() => _ncm.call(method, query)` 直接 await,
-/// 返回 [MusicResponse]。仓库层调用形态不变。
+/// 调一次接口:把 RPC / 解析 / 网络异常统一包成 [ApiException],
+/// 并做 [checkResponse] 业务检查。
 Future<MusicResponse> apiCall(
   Future<MusicResponse> Function() fn, {
   String? what,
@@ -29,13 +24,11 @@ Future<MusicResponse> apiCall(
   }
 }
 
-/// 业务成功判定:HTTP 200 + body.code 200(网易云惯例)
+/// 业务成功判定:HTTP 200 + body.code 200(网易云惯例)。
 ///
-/// 不是所有返回都有 body.code(如部分 banner / settings),允许 body.code 缺失
-/// 此时只看 HTTP status。
-///
-/// **双层 body 兼容**:真机发现 `/playlist/tracks` 等端点的 code 不在
-/// 顶层 `r.body['code']`,而在嵌套 `r.body['body']['code']`。这里两层都查。
+/// code 缺失是允许的(部分 banner / settings 没有),此时只看 HTTP status。
+/// 两层 body 都要查:`/playlist/tracks` 等端点的 code 不在顶层而在
+/// `r.body['body']['code']`。
 void checkResponse(MusicResponse r, {String? hint}) {
   if (r.status != 200) {
     throw ApiException(r.status, '${hint ?? "请求"} 失败 (HTTP ${r.status})');

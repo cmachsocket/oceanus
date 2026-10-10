@@ -1,10 +1,9 @@
-//掌管登录凭证
+/// 登录凭证的全局持有者
 
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:get/get.dart';
 import '../models/AuthInfo.dart';
 import 'NeteaseApi.dart';
-import '../models/ApiException.dart';
 
 class AuthController extends GetxController {
   final Rx<AuthInfo> authInfo = AuthInfo.empty().obs;
@@ -12,123 +11,78 @@ class AuthController extends GetxController {
   int get currentUid => authInfo.value.currentUid;
   final NeteaseApi _auth = Get.find<NeteaseApi>();
 
-  /// 发送验证码
-  ///
-  /// - 调 [NeteaseApi.sendCaptcha]
-  /// - 成功 → true
-  /// - 失败 → false
   Future<bool> sendCode({
     required String phoneStr,
     required String countryCode,
   }) async {
     try {
-      // 2026-08-25: 匿名访客 cookie (NMTID/NMSCVT) 由 [NeteaseApi.init] 启动阶段
-      // 一次性拉 (已登录 / 已缓存不重拉), 这里不再调 applyAnonymousCookie 避免重复请求。
+      // 匿名访客 cookie (NMTID/NMSCVT) 由 NeteaseApi.init 启动时一次性拉,这里
+      // 不再调 applyAnonymousCookie 避免重复请求。
       await _auth.sendCaptcha(phone: phoneStr, ctcode: countryCode);
       return true;
-    } on ApiException {
-      return false;
     } catch (_) {
-      // 非 ApiException (e.g. PlatformException / 网络栈异常) 也兜底,
-      // 否则会沿 LoginController.login 冒泡 → UI 看不到 snackbar 也不知道失败
+      // 非 ApiException (PlatformException / 网络栈异常) 也兜底,否则会沿
+      // LoginController 冒泡,UI 连 snackbar 都看不到
       return false;
     }
   }
 
-  /// 登录
-  ///
-  /// 流程:
-  /// 1. 先调 [NeteaseApi.applyAnonymousCookie] —— 拿 `/register/anonimous`
-  ///    的访客 session cookie(NMTID/NMSCVT),让后端把这次请求当成"已有会话
-  ///    的设备",避开裸 IP 直连触发云盾 10004 + phoneReuse 重定向
-  ///    (MUSICLIBRARY.md 6.2,2026-08-09 实测确认)
-  /// 2. 调 [NeteaseCloudMusicApi.login_cellphone] (走 captcha 验证码分支)
-  /// 3. 成功 → 把 Set-Cookie 灌进 SDK + 持久化 GetStorage + loadAuthInfo 补 uid
-  /// 4. 失败 → 弹 SnackBar(常见:验证码错 / 风控要求扫码 / 频繁登录)
-  ///
-  /// 成功判定: 登录 API 返 cookie 非空 (即 [applyLoginCookie] 返回了身份 cookie)
-  /// —— cookie 是登录态的最小充分条件, uid 拿不到只影响 Library 页拉数据,
-  /// 不阻断登录本身 (见 [loadAuthInfo] 注释)。
-  ///
-  /// 注意:第 1 步失败不阻断第 2 步(applyAnonymousCookie 内部 try/catch),
-  /// 最坏情况就是回到老路径被云盾挡。
+  /// 1. 先建访客 session(拿 NMTID/NMSCVT),让后端把这次请求当成"已有会话的
+  ///    设备",避开裸 IP 直连触发云盾 10004 + phoneReuse 重定向。第 1 步失败不
+  ///    阻断第 2 步,最坏就是被云盾挡。
+  /// 2. 发登录请求(验证码分支)。
+  /// 3. 成功判定 = **cookie 非空**(见下),不是响应 code。
   Future<bool> login({
     required String phoneStr,
     required String codeStr,
     required String countryCode,
   }) async {
     try {
-      // 1. 先建访客 session
       await _auth.applyAnonymousCookie();
-      // 2. 再发登录请求(此时 SDK 全局 cookie map 已有 NMTID/NMSCVT)
       final r = await _auth.loginCellphone(
         phone: phoneStr,
         captcha: codeStr,
         countrycode: countryCode,
       );
-      // 3. 灌 cookie + 持久化 GetStorage + 写 loggedInKey (applyLoginCookie 内)
       final cookies = await _auth.applyLoginCookie(r);
+      // 没拿到身份 cookie = 登录失败:多半是云盾拦截 / 风控重定向,
+      // 业务 code 200 但 cookie 缺失。uid 拿不到不算失败。
       if (cookies.isEmpty) {
-        // 没拿到身份 cookie: 视为登录失败 (后端响应里没 Set-Cookie, 多半
-        // 是云盾拦截 / 风控重定向, 业务 code 200 但 cookie 缺失)
         authInfo.value = AuthInfo.empty();
         return false;
       }
-      // 4. 补 uid + 从持久化读 cookie 同步到 Rx (供 UI 订阅)
-      //    uid 拿不到不算失败 —— 不阻断登录态, 只在 Library 那边拉不到数据
       await loadAuthInfo();
       return authInfo.value.loggedIn;
-    } on ApiException {
-      authInfo.value = AuthInfo.empty();
-      return false;
     } catch (_) {
-      // 非 ApiException (e.g. PlatformException / FFI 异常 / 解析失败)
-      // 也兜底返回 false + 清状态, 否则 LoginController.login 那边的 await
-      // 会被 finally 之外的部分 (snackbar/back) 跳过, UI 看不到任何反馈。
+      // 非 ApiException (PlatformException / 解析失败) 也兜底清状态,
+      // 否则 UI 连失败反馈都收不到
       authInfo.value = AuthInfo.empty();
       return false;
     }
   }
 
-  /// 退出登录,清理凭证
-  ///
-  /// RPC 化后变 async:worker 端清 SDK cookie + GetStorage + loggedIn flag
   Future<bool> logout() async {
     await _auth.logout();
     authInfo.value = AuthInfo.empty();
     return true;
   }
 
-  /// 加载当前登录态的 uid + cookie, 同步到 [authInfo] Rx
-  ///
-  /// - 登录态来源: worker 持久化的 `_loggedInKey` (applyLoginCookie → true,
-  ///   logout → false), 走 [NeteaseApi.isLoggedIn] (RPC) 读, 单一真相源
-  /// - cookie 来源: worker 持久化的 `_cookieStorageKey`, 走
-  ///   [NeteaseApi.getSavedAuthCookie] (RPC)
-  /// - uid 拿不到 (网络/格式问题) 不阻断登录 —— 只在 Library 那边拉不到数据
-  ///
-  /// 调用方:
-  /// - [NeteaseApi.init] 启动时 (恢复已登录用户的 uid)
-  /// - [login] 成功后补一次 (刚登录的 uid)
+  /// 同步 uid + cookie 到 [authInfo]。uid 拿不到不算失败(只是 Library 拉不到
+  /// 数据);cookies/flag 不全时**不清空也不硬写 true**(可能只是没网),
+  /// 保留现有 Rx 由调用方决定 [logout]。
   Future<void> loadAuthInfo() async {
-    // 1. 是否登录: RPC 读 worker 写的 flag, 不靠接口响应
     final loggedIn = await _auth.isLoggedIn();
-    // 2. cookie: RPC 读 worker GetStorage 持久化的 (applyLoginCookie 写入的)
     final cookies = await _auth.getSavedAuthCookie();
-    // 3. uid: 拉 /user/account (可能因网络/格式返回 0)
-    //    fetchCurrentUid 内部 try/catch 不抛, 失败返 0
+    // fetchCurrentUid 内部 try/catch,失败返 0
     final uid = await _auth.fetchCurrentUid();
 
     if (loggedIn && cookies.isNotEmpty) {
       authInfo.value = AuthInfo(
         cookie: cookies,
-        currentUid: uid, // 可能为 0 —— 不算失败, Library 那边会退化
+        currentUid: uid,
         loggedIn: true,
       );
     } else {
-      // cookies/flag 不全: 不强制清空 (用户可能只是当前没网, 等下重试),
-      // 也不硬写 loggedIn=true (旧实现的 bug, 会让"登录失败但 SDK 没清 cookie"
-      // 的场景显示为已登录)。保留现有 Rx 内容, 由调用方根据业务决定 [logout]。
       if (kDebugMode) {
         // ignore: avoid_print
         print(

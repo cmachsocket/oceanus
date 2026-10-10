@@ -10,19 +10,11 @@ import '../services/repositories/ArtistRepository.dart';
 import '../services/repositories/PlaylistRepository.dart';
 import '../models/LibrarySummary.dart' show PlaylistSource;
 
-/// 歌单详情页 body 区 controller。
+/// 歌单详情页 body 区 controller:歌曲列表 + 加载状态 + 错误信息。
 ///
-/// **职责**:歌曲列表(整张专辑 / 整张歌单的所有曲目)、加载状态、错误信息。
-///
-/// **不存**:head 行的标题 / 封面 / 描述 / playlistSource —— 那归 [SongListHeadController] 管。
-///
-/// body 跟 head 是 sibling controller,各存一份 `playlistId`,完全独立。
-/// binding 时同时注入两个,head 的 `onPlayAll` 钩子指向 body.playAll,
-/// 这样 head 是纯命令执行器,不需要知道 body 实现细节。
-///
-/// **id 形式**:`playlistId` 是 String(网易云 API 入参要求 String),
-/// 专辑 / 歌单的区分通过 [source] enum,**不再**用 `'album-'` 前缀字符串
-/// 判别。
+/// 跟 head 是 sibling controller,各存一份 `playlistId`、完全独立;binding 时同时
+/// 注入,head 的 `onPlayAll` 钩子指向 body.playAll,head 不需要知道 body 的实现。
+/// head 行的标题 / 封面 / 描述 / source 归 [SongListHeadController]。
 class SongListBodyController extends GetxController {
   SongListBodyController({
     required this.playlistId,
@@ -30,52 +22,27 @@ class SongListBodyController extends GetxController {
     this.loadSongsCustom,
   });
 
-  /// 路由传进来的歌单 ID —— body 跟 head 各存一份(独立,不互引)
   final String playlistId;
   final PlaylistSource source;
 
-  /// 自定义加载钩子。
+  /// 自定义加载钩子(搜索结果等有外部数据源的场景)。
   ///
-  /// **为什么是 sync `void Function(SongListBodyController)` 而不是 async**:
-  /// async 函数会在调用栈上同步跑到第一个 await,然后才返回 Future。
-  /// `Future.microtask(_loadSongs)` 把调用推迟到下一个 microtask,即使钩子是
-  /// async,在 microtask 里也能完整跑完不阻塞 build。但更稳的写法是 sync。
+  /// 责任:① 立即给 `body.songs` 赋值;② 可选调 [watchExternal] 让外部 Rx 变化
+  /// 自动同步到 `body.songs`。
   ///
-  /// **钩子责任**:
-  ///   1. 立即给 `body.songs` 赋值(初始数据)
-  ///   2. (可选)调 `body.watchExternal(RxList)` 监听外部 Rx 变化,
-  ///      自动同步到 `body.songs` —— 见 [watchExternal]
+  /// 必须是 **sync**:`_loadSongs` 走 `Future.microtask` 推迟到下一个 microtask,
+  /// async 钩子虽然也能跑完但会多占一层,不如 sync 稳。
   ///
-  /// **不要在钩子里**:
-  ///   - `Get.find(tag: ...)` 找本 controller —— 在 `onInit` 同步链中
-  ///     调 Get.find 同 tag 会触发 GetX reentrant 状态错乱
-  ///   - 同步阻塞操作(网络/HTTP)—— 这该走 `_loadSongs` 的默认分支
-  ///
-  /// **用例**(搜索结果):
-  /// ```dart
-  /// loadSongsCustom: (body) {
-  ///   body.songs.assignAll(searchController.songResults.toList());
-  ///   body.watchExternal(searchController.songResults, body.songs);
-  /// }
-  /// ```
+  /// 禁止:`Get.find(tag: ...)`(在 onInit 同步链里调同 tag 的 find 会让 GetX
+  /// reentrant 状态错乱)、同步阻塞的网络请求(该走 `_loadSongs` 默认分支)。
   final void Function(SongListBodyController)? loadSongsCustom;
 
-  /// 外部 Rx 监听列表(Worker 句柄)。
-  ///
-  /// **生命周期**:`onClose` 时全部 dispose,避免 controller 已销毁但 Worker
-  /// 仍触发回调 → "called on disposed controller" 错误。
+  /// onClose 时统一 dispose,否则 controller 已销毁而 Worker 仍回调。
   final List<Worker> _workers = [];
 
-  /// 监听一个外部 `RxList<Song>`,它变化时自动 `assignAll` 到 `body.songs`。
-  ///
-  /// **跟 `loadSongsCustom` 配套使用**:
-  /// - 钩子里立即 assign 一次当前值
-  /// - 调 `watchExternal` 注册 ever worker 让后续变化自动同步
-  ///
-  /// **为什么不用 `body.songs.bindStream` / `body.songs.listen`**:
-  /// RxList 没有"主从"概念,只能手动 assignAll。
-  /// 用 `ever<T>(external, callback)` 是 GetX 的标准同步方式,生命周期跟着
-  /// controller 走(onClose 自动 dispose),不会泄漏。
+  /// 把外部 `RxList<Song>` 的变化自动 assignAll 到 `body.songs`(配
+  /// [loadSongsCustom] 使用)。RxList 没有主从概念只能手动 assignAll,`ever`
+  /// 的 Worker 生命周期跟 controller 走。
   void watchExternal(RxList<Song> external, RxList<Song> target) {
     _workers.add(
       ever<List<Song>>(external, (List<Song> updated) {
@@ -99,32 +66,23 @@ class SongListBodyController extends GetxController {
   /// body 加载失败(head 失败不影响 body 显示,反之亦然)
   final RxnString errorMessage = RxnString();
 
-  /// `ready` future:body 拉完首屏歌曲。外部可以 `await c.ready` 等首屏数据。
+  /// body 拉完首屏歌曲。外部 `await c.ready` 等首屏数据。
   ///
-  /// **不是 final**:`Obx` 在某些边缘场景下可能多次重建 `_SongView`,
-  /// GetX 内部可能再次触发 `onInit`(取决于 GetX 内部状态机)。
-  /// `late final` 第二次会抛 `LateInitializationError: Field already initialized`,
-  /// 改成 `late` 兼容这种场景 —— 每次 `onInit` 重启一个新的 load future,
-  /// widget 内部用 `controller.songs` 响应式读,语义不变。
+  /// 必须是 `late` 而不是 `late final`:onInit 可能被再次触发,`late final`
+  /// 第二次赋值会抛 Field already initialized。
   late Future<void> ready;
 
   @override
   void onInit() {
     super.onInit();
-    // **异步推迟到下一个 microtask**:避免在 `Get.put` 同步创建链中
-    // 触发的 `onInit` 里同步执行 Rx 写(loadSongsCustom 内 assignAll)——
-    // 那个 Rx 写会立即通知 SongListBody 内部 Obx rebuild,Obx rebuild 又
-    // 会调到 `_SongView.build`,`_SongView.build` 在 `isRegistered` 守卫下
-    // 不会再走 Get.put —— 但仍可能 reentrant 触发 widget tree 更新。
-    //
-    // 推迟到 microtask 后,所有同步链完整结束,build 完成才执行 loadSongsCustom。
+    // 必须推迟到 microtask:loadSongsCustom 里同步写 Rx 会立刻通知内部 Obx
+    // rebuild,而 onInit 是被 Get.put 的同步创建链调用的 —— 那会让 widget tree
+    // 在构造过程中被 reentrant 更新。
     ready = Future.microtask(_loadSongs);
   }
 
   @override
   void onClose() {
-    // 释放所有外部 Rx 监听 Worker,避免 controller 已销毁但 Worker 仍触发
-    // 回调 → "called on disposed controller" / 内存泄漏。
     for (final w in _workers) {
       w.dispose();
     }
@@ -132,10 +90,7 @@ class SongListBodyController extends GetxController {
     super.onClose();
   }
 
-  /// 拉曲目:按 [source] enum 分流
-  ///
-  /// `loadSongsCustom` 是 sync 钩子(`Future.microtask` 内调用,已避开同步链);
-  /// 钩子内部直接写 `body.songs`,不需要 await。
+  /// 拉曲目:`loadSongsCustom` 优先,否则按 [source] 分流。
   Future<void> _loadSongs() async {
     isLoading.value = true;
     errorMessage.value = null;
@@ -147,7 +102,7 @@ class SongListBodyController extends GetxController {
       }
       switch (source) {
         case PlaylistSource.pure:
-          // pure 没自定义钩子 → 用 playlist 路径(实际场景不会走到)
+          // 实际场景不会走到(总有自定义钩子),兜底走 playlist 路径
           await _loadPlaylistSongs(playlistId);
         case PlaylistSource.album:
           await _loadAlbumSongs(playlistId);
@@ -221,12 +176,8 @@ class SongListBodyController extends GetxController {
   /// 查询某首歌是否被喜欢(调用方必须包 Obx 才能响应变化)
   bool isLiked(String songId) => _likedService.isLiked(songId, LikedType.song);
 
-  /// 按 [playlistId] 拉歌 + 整张播放
-  ///
-  /// 用于卡片"播放"按钮:不进入详情页直接播放整张歌单
-  ///
-  /// 临时 put 一个 [SongListBodyController] 实例,等首屏 load 完 →
-  /// 调 [playAll] → 销毁。完成后这个临时 controller 跟详情页那个没关系。
+  /// 按 [playlistId] 拉歌 + 整张播放,给卡片"播放"按钮用(不进详情页)。
+  /// 临时 put 一个实例,等首屏 load 完 → playAll → 销毁。
   static Future<void> playPlaylistById(String playlistId) async {
     final tag = 'preview-$playlistId';
     if (Get.isRegistered<SongListBodyController>(tag: tag)) {

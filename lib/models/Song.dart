@@ -58,33 +58,19 @@ class Song {
     duration: Duration(seconds: json['duration'] as int),
   );
 
-  /// 从网易云返回的 song JSON 解析
-  ///
-  /// **兼容两种 schema**:
-  /// - /song/detail、`/search` 返回的 songs[]、playlist_track_all 等大部分场景
-  /// - /search 用 `artists`(复数) + `album`(完整) + `duration`
-  /// - /song/detail 用 `ar`(简写) + `al`(简写) + `dt`
-  ///
-  /// 主要字段:
-  /// - id: u64 / str
-  /// - name: 标题
-  /// - 歌手列表: `ar` (list) 或 `artists` (list),取第一个 name / id
-  /// - 专辑: `al` 或 `album`,取 name / id / picUrl
-  /// - 时长(ms): `dt` 或 `duration`
-  /// - fee: 0 免费 / 1 VIP / 8 非会员低音质
+  /// 兼容网易云的两套 schema:`/search` 用 `artists`/`album`/`duration`,
+  /// `/song/detail` 用简写的 `ar`/`al`/`dt`。歌手和专辑都只取第一个。
   factory Song.fromNeteaseJson(Map<String, dynamic> json) {
-    // 艺人列表:优先 ar,其次 artists
     final arList = json['ar'] ?? json['artists'];
     final artists = arList is List ? arList : const [];
     final firstArtist = artists.isNotEmpty
         ? Map<String, dynamic>.from(artists.first as Map)
         : null;
-    // 专辑:优先 al,其次 album
     final albumRaw = json['al'] ?? json['album'];
     final albumMap = albumRaw is Map
         ? Map<String, dynamic>.from(albumRaw)
         : null;
-    // 时长:优先 dt(毫秒),其次 duration(毫秒),都是毫秒数
+    // dt 和 duration 都是毫秒
     final dt = json['dt'] is int
         ? json['dt'] as int
         : (json['duration'] is int ? json['duration'] as int : 0);
@@ -100,15 +86,11 @@ class Song {
     );
   }
 
-  /// 统一的 Song -> MediaItem 映射。
+  /// Song -> MediaItem。业务层留 [Song],只在接入 audio_service(通知/锁屏/队列)
+  /// 时转换。
   ///
-  /// 业务模型 [Song] 保留在业务层；仅在接入 audio_service 的系统通知/锁屏/队列时
-  /// 通过本扩展转换为 [MediaItem]。这样避免在两个 PlaybackService 里重复维护相同映射。
-  ///
-  /// [duration] 由调用方传入：mediaItem 展示时长需要播放器实时值，
-  /// 而 [Song.duration] 是静态元数据，两者语义不同。
-  /// [artHeaders] 由调用方传入：NCM CDN 需要伪装 UA 才能取封面。
-
+  /// [duration] 要调用方传:mediaItem 上要的是播放器实时时长,而
+  /// [Song.duration] 是静态元数据,两者语义不同。
   MediaItem toMediaItem({Duration? duration, Map<String, String>? artHeaders}) {
     return MediaItem(
       id: id,

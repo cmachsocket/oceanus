@@ -1,21 +1,10 @@
 // SPDX-License-Identifier: MIT
-//
-// Adapter from `NcmApi`'s response shape (the upstream NCM API
-// Enhanced) to the `MusicResponse` interface the rest of the app
-// already speaks. The upstream returns
-//   `{ status: int, body: Map, cookie: List<String> }`
-// and the app expects `MusicResponse { status, body, headers }` with
-// a `Set-Cookie` header string. We keep `MusicResponse` as a value
-// type (not a global singleton) so it's trivial to serialize across
-// the isolate boundary should we ever re-introduce a worker.
-//
-// The original `MusicResponse` class came from the `musiclibrary`
-// FFI package (now removed); we re-declare the same shape here so
-// callers in lib/services/... can keep using `r.body`, `r.status`,
-// `r.cookies` etc.
 
 import 'dart:convert';
 
+/// NCM API Enhanced 响应适配层。上游给
+/// `{ status, body, cookie: List<String> }`,这里转成 app 内部统一用的
+/// `{ status, body, headers }`。
 class MusicResponse {
   MusicResponse({
     required this.status,
@@ -23,37 +12,24 @@ class MusicResponse {
     required this.headers,
   });
 
-  /// HTTP status from upstream (always 200 in normal operation; the
-  /// upstream returns code 4xx/5xx for transport failures).
+  /// 正常情况下恒为 200(传输层失败时上游才给 4xx/5xx)。
   final int status;
 
-  /// Parsed business JSON.
   final Map<String, dynamic> body;
 
-  /// Raw HTTP-style headers. We only ever populate `Set-Cookie` since
-  /// that's all the upstream pipeline gives us.
+  /// 只会填 `Set-Cookie`(上游就只给得出这个)。
   final Map<String, String> headers;
 
-  /// Convenience: `headers['Set-Cookie'] ?? ''`.
   String get cookies => headers['Set-Cookie'] ?? '';
 
-  /// Convenience: `body`. (Some repos call `r.data` instead of
-  /// `r.body`.)
   Map<String, dynamic> get data => body;
 
-  /// Build a MusicResponse from a raw NCM API Enhanced response map.
-  ///
-  /// NCM API Enhanced returns:
-  ///   { status: int, body: Map<String, dynamic>, cookie: List<String> }
-  ///
-  /// `cookie` is a list because the upstream may emit multiple
-  /// Set-Cookie headers; we join them with `, ` (the format
-  /// [ApiCall]/_parseCookieString expects).
+  /// cookie 是 list(上游可能发多条 Set-Cookie),这里用 `, ` 连起来。
   factory MusicResponse.fromNcm(Map<String, dynamic> raw) {
     final rawStatus = raw['status'];
     final status = rawStatus is int ? rawStatus : 200;
-    final body = (raw['body'] as Map?)?.cast<String, dynamic>() ??
-        <String, dynamic>{};
+    final body =
+        (raw['body'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
     final cookieList = raw['cookie'];
     String joined = '';
     if (cookieList is List) {
@@ -67,19 +43,17 @@ class MusicResponse {
     return MusicResponse(
       status: status,
       body: body,
-      headers: joined.isEmpty ? <String, String>{} : <String, String>{
-          'Set-Cookie': joined,
-        },
+      headers: joined.isEmpty
+          ? <String, String>{}
+          : <String, String>{'Set-Cookie': joined},
     );
   }
 
-  /// JSON serialization — round-trip form, used by tests and by any
-  /// caller that needs to log the response shape.
   Map<String, dynamic> toJson() => {
-        'status': status,
-        'body': body,
-        'headers': headers,
-      };
+    'status': status,
+    'body': body,
+    'headers': headers,
+  };
 
   String toJsonString() => jsonEncode(toJson());
 
@@ -87,14 +61,14 @@ class MusicResponse {
     final m = jsonDecode(s) as Map<String, dynamic>;
     return MusicResponse(
       status: m['status'] as int? ?? 200,
-      body: (m['body'] as Map?)?.cast<String, dynamic>() ??
-          <String, dynamic>{},
-      headers: ((m['headers'] as Map?) ?? {})
-          .cast<String, dynamic>()
-          .map((k, v) => MapEntry(k, v?.toString() ?? '')),
+      body: (m['body'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{},
+      headers: ((m['headers'] as Map?) ?? {}).cast<String, dynamic>().map(
+        (k, v) => MapEntry(k, v?.toString() ?? ''),
+      ),
     );
   }
 
   @override
-  String toString() => 'MusicResponse(status=$status, body=${body.length} keys)';
+  String toString() =>
+      'MusicResponse(status=$status, body=${body.length} keys)';
 }

@@ -16,24 +16,12 @@ import 'AudioPlayerHandler.dart';
 import 'LocalRedirectServer.dart';
 import '../models/Lyrics.dart';
 
-/// ---- 顶层包装层暴露给 UI 的快照 ------------------------------------------------
-
-/// 播放状态快照。包装器把 [PlaybackState] + 业务上下文聚合成一份给 UI 订阅。
-
-/// ---- 顶层包装层 ----------------------------------------------------------------
+/// 顶层包装层:把 [AudioPlayerHandler] 的 audio_service 事件流翻译成
+/// [PlaybackSnapshot] 给 UI 订阅,并把 UI 命令转发到底层。
 ///
-/// 把 [AudioPlayerHandler] 提供的 audio_service 事件流 (playbackState / mediaItem /
-/// queue) 翻译成 [PlaybackSnapshot],并把 UI 命令 (play/pause/seek/skip/setQueue/
-/// setPlayOrder) 转发到底层。
-///
-/// 唯一可变状态: [snapshot] (`Rx<PlaybackSnapshot>`),由 5 个来源聚合而成:
-///   1. handler.playbackState  → isPlaying / processingState / position / bufferedPosition
-///   2. handler.mediaItem       → currentSong (Song)
-///   3. handler.queue           → queue
-///   4. handler.currentIndex    → currentIndex
-///   5. handler.currentSongLiked 流 (`Stream<bool>`) → isCurrentSongLiked
-///      (handler 内部 listen likedSongIds.stream + 在 _playAt emit,
-///      主动推 bool 给 wrapper,wrapper 不需要查 _likedService)
+/// 唯一可变状态是 [snapshot],由 5 路聚合:handler.playbackState(isPlaying /
+/// processingState / position / bufferedPosition)、mediaItem(currentSong)、
+/// queue、currentIndex、currentSongLiked(isCurrentSongLiked)。
 class AudioPlayerService extends GetxController {
   AudioPlayerService();
 
@@ -41,29 +29,22 @@ class AudioPlayerService extends GetxController {
   final LikedController _likedService = Get.find<LikedController>();
   final LyricsRepository _lyricsRepo = Get.find<LyricsRepository>();
 
-  /// 全局音质偏好 (SettingsPage 用户选择) —— 注入到 handler,handler 在
-  /// _playAt 拉 URL 时取当前 quality 作为 level 参数。
-  /// wrapper 不在这里读 currentQuality —— 单向流: handler 自己取,
-  /// wrapper 只持有引用避免 handler 重新 Get.find。
+  /// 全局音质偏好。注入给 handler 建 AudioSource 时用;wrapper 自己不读,
+  /// 只持有引用避免 handler 再 Get.find。
   final SettingsController _settings = Get.find<SettingsController>();
   late final AudioPlayerHandler audioHandler;
 
   // ---- 业务层 Rx 集合 (跟 UI / 上层 controller 交互用) ------------------------
 
-  /// 业务层队列 (Song 列表) — 与 handler 内部 [_queue] (MediaItem) 对应,
-  /// 由 [_onQueue] / [setQueue] 双向同步。UI / controller 走 [playlist] 拿 Song,
-  /// handler 走 [snapshot.queue] (MediaItem) 走 audio_service。
+  /// 业务层队列(Song)。跟 [snapshot.queue](MediaItem) 由 [_onQueue] 同步。
   final RxList<Song> playlist = <Song>[].obs;
 
-  // 持久化 (从老的 PlayQueueService 迁来)
   static const _storageKey = 'playlist_v1';
   static const _currentIndexKey = 'playlist_currentIndex_v1';
   static const _modeKey = 'playlist_mode_v1';
 
-  /// audio_service 后台播放配置
-  ///
-  /// 在 wrapper 这里集中构造, 不放在 main.dart — 配置是音频层的关注点
-  /// (锁屏控件 / 通知 channel / 封面降采样), 不该让 app 启动入口知道细节。
+  /// audio_service 后台播放配置。集中构造在 wrapper 而不是 main:配置是音频层
+  /// 的关注点(锁屏控件 / 通知 channel / 封面降采样)。
   ///
   /// 各字段选择:
   ///   - `androidNotificationChannelId/Name/Description`: 通知 channel,
@@ -259,52 +240,32 @@ class AudioPlayerService extends GetxController {
     // 后主动 emit, wrapper 只读不写, 单向流)
     _playOrderSub = audioHandler.playOrder.listen((order) {
       _modeRx.value = order;
-      _schedulePersist(); // 模式切换也要写盘 (之前 setPlayOrder 漏掉了)
+      _schedulePersist(); // 模式切换也要写盘
     });
-    // broadcast 无 replay: 兜底刷一次 (handler 构造时已 emit 初始值, 但
-    // 如果 init() 跑在 handler 构造**之前** (本次不会,但兜底), 订阅就会
-    // 漏掉初始 emit)
+    // broadcast 无 replay,兜底刷一次
     audioHandler.refreshPlayOrder();
 
-    // 订阅 handler 推的 currentIndex 流 → _currentIndexSub / snapshot.currentIndex
-    //
-    // 老实现是从 mediaItem.extras['queueIndex'] 反解的(handler 当时没有 index
-    // 的出口);现在 handler 直接把 just_audio 的 currentIndex 推出来,这里只订阅。
-    // 注意 snapshot.currentIndex 仍在 _onMediaItem 里一起更新 —— 两条流的
-    // 触发源相同(都是 currentIndex 变),值一致,谁先到都不影响最终状态。
+    // handler 直接把 just_audio 的 currentIndex 推出来(不再塞 extras 反解)。
+    // snapshot.currentIndex 也由这条流写 —— 触发源相同,谁先到都不影响最终状态。
     _currentIndexSub2 = audioHandler.currentIndex.listen((idx) {
       _currentIndexSub.value = idx;
       snapshot.value = snapshot.value.copyWith(currentIndex: idx);
     });
 
-    // ---- 启动恢复: 把持久化队列灌进 just_audio 的内置队列 -----------------------
-    // handler 构造时拿不到 Future(构造函数不能 await),所以真正的
-    // `setAudioSources` 在 handler.restore() 里,这里补一次 await。
-    //
-    // await 的是 setAudioSources + 首项 prepare,**不 await 播放**,所以冷启动
-    // 不会因为网络慢而卡住 runApp();而且恢复后 queue / currentIndex / loopMode
-    // 一次到位,不用再像老实现那样"skipToQueueItem + pause"两段式(那条路径
-    // 现在天然由 restore 完成:initialIndex 直接给 just_audio,playWhenReady=false)。
+    // 启动恢复:把持久化队列灌进 just_audio 的内置队列。真正的 setAudioSources
+    // 在 handler.restore() 里(构造函数不能 await)。这里 await 的是
+    // setAudioSources + 首项 prepare,**不含播放**,所以慢网不会卡住 runApp()。
     await audioHandler.restore();
 
-    // ---- 持久化自动触发已就绪 ----
-    // init() 上半段已经在 _onMediaItem / _onQueue / currentIndex / playOrder
-    // listener 内部追加了 _schedulePersist() 调用,覆盖所有状态变化路径:
-    //   - skipToNext/Previous   → just_audio 推进 currentIndex → currentIndex 流
-    //   - 自然播完推进          → 原生后端自动加载下一首 → currentIndex 流
-    //   - skipToQueueItem       → seek(index:) → currentIndex 流
-    //   - setPlayOrder          → just_audio loopMode/shuffle → playOrder 流
-    //   - setQueue/add/remove   → sequence 变 → queue 流
-    // 设置 flag 让 listener 在恢复期结束后开始写盘 (避免 init() 期间的 emit
-    // 把"刚恢复的值"再写回 —— 虽然语义上等价,但属于浪费 IO,且干扰调试日志)。
+    // 持久化自动触发放行:上面的 listener 都挂了 _schedulePersist(),
+    // flag 保证恢复期结束才开始写盘(否则会把刚恢复的值再写回一遍)。
     _persistReady = true;
   }
 
   @override
   void onClose() {
-    // 兜底: app 退出前最后写一次盘, 把 debounce 期间未刷的状态落盘
-    // (Android 杀进程时不保证 onClose 跑, 但 iOS / 用户主动 kill / GetX
-    //  路由销毁等场景能覆盖)
+    // app 退出前把 debounce 期间未刷的状态落盘(Android 杀进程时不保证
+    // onClose 会跑,但 iOS / 用户主动 kill / GetX 路由销毁这些场景能覆盖)
     _persistDebounce?.cancel();
     if (_persistReady) {
       _persist();
@@ -339,12 +300,9 @@ class AudioPlayerService extends GetxController {
       _currentIndexSub.value = -1;
       return;
     }
-    final song = _itemToSong(item);
-    // currentIndex **不再**从 extras['queueIndex'] 读:那条通道是给"handler 没有
-    // index 出口"的老实现准备的。现在 handler 把 just_audio 的 currentIndex
-    // 推在独立流上(见 init() 里的 _currentIndexSub2 订阅),这里只管 song。
-    snapshot.value = snapshot.value.copyWith(currentSong: song);
-    _schedulePersist(); // 当前曲变化 → 写盘 (覆盖切歌)
+    // currentIndex 走独立流(见 init 里的 _currentIndexSub2 订阅),这里只管 song
+    snapshot.value = snapshot.value.copyWith(currentSong: _itemToSong(item));
+    _schedulePersist();
   }
 
   void _onQueue(List<MediaItem> q) {
@@ -368,13 +326,9 @@ class AudioPlayerService extends GetxController {
   Future<void> skipToQueueItem(int index) =>
       audioHandler.skipToQueueItem(index);
 
-  /// 替换整个队列。传入 Song 列表,内部翻成 MediaItem 交给 handler。
-  ///
-  /// `duration: s.duration` 一起传入 MediaItem —— wrapper._itemToSong 翻译
-  /// 时会取回 Song.duration,这样 `playlist[i].duration` 在切歌前就有合理值
-  /// (否则 UI 进度条 / 队列列表里非当前歌曲显示 0:00)。
-  /// 真时长仍以 just_audio 的 durationStream 为准,handler 会用带真时长的那份
-  /// MediaItem 重发 mediaItem(更准)。
+  /// 替换整个队列。`duration: s.duration` 一起传,让 _itemToSong 能还原出
+  /// Song.duration(否则未播放的歌在列表里显示 0:00);真时长仍以 just_audio 的
+  /// durationStream 为准。
   Future<void> setQueue(List<Song> songs, {int startIndex = 0}) {
     final items = songs
         .map(

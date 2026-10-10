@@ -2,7 +2,7 @@ import 'package:audio_service/audio_service.dart';
 import 'Song.dart';
 import 'package:just_audio/just_audio.dart';
 
-/// 播放顺序。影响 [AudioPlayerHandler._playOrder] 的索引推进策略。
+/// 播放顺序。
 enum PlayOrder { sequential, shuffle, repeatOne }
 
 class PlaybackSnapshot {
@@ -25,10 +25,10 @@ class PlaybackSnapshot {
 
   final Song? currentSong;
 
-  /// 完整队列（UI 用），长度 = 内部 [_AudioPlayerHandler._queue].length
+  /// 完整队列(UI 用)
   final List<MediaItem> queue;
 
-  /// 在 [queue] 里的索引；-1 = 没有当前播放
+  /// 在 [queue] 里的索引;-1 = 没有当前播放
   final int currentIndex;
 
   final PlayOrder playOrder;

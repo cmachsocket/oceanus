@@ -10,36 +10,18 @@ import '../services/AudioPlayerWrapper.dart';
 import 'package:get_storage/get_storage.dart';
 import '../models/Lyrics.dart';
 
-/// 歌词控制器 —— 直接订阅 [AudioPlayerService.snapshot] 拉歌词、推进度。
+/// 歌词控制器:订阅 [AudioPlayerService.snapshot],在回调里 diff 出
+/// currentSong / position 的变化,拉歌词 + 推进高亮。
 ///
-/// ## 依赖关系
+/// **只依赖 wrapper 不依赖 PlayerController**:音频真相全在
+/// `snapshot.currentSong / snapshot.position`;绕一层 UI facade 会让调试时说不清
+/// 该信哪一层的状态,还会把歌词的生命周期跟 UI facade 绑死。
 ///
-/// **只依赖 [AudioPlayerService]**(音频 wrapper),不依赖 [PlayerController]。
+/// **不拆 currentSong / position 的单独 Rx**:snapshot 已是单一真相,再拆 6+ 个
+/// Rx 容易双写不同步。
 ///
-/// 之前依赖 PlayerController 的原因:PlayerController 自己订阅 just_audio
-/// stream 并维护 currentSong/position Rx,歌词想拿进度只能从那里读。但现在:
-///   - 音频真相全部在 wrapper (snapshot.currentSong / snapshot.position)
-///   - PlayerController 只是 wrapper 的 UI facade,本身不持有音频流
-///
-/// 既然 wrapper 已经直接暴露这些字段,LyricsController 不该再绕一层 facade
-/// ——耦合 PlayerController 会导致:
-///   1. 业务路径变长(UI → PlayerController → wrapper → handler → just_audio),
-///      调试时不清楚该信哪一层的状态
-///   2. LyricsController 跟 PlayerController 生命周期绑死(都 permanent: true
-///      时不会出问题,但语义上歌词跟音频状态对齐,跟 UI facade 不该有依赖)
-///
-/// 改为直接订阅 wrapper.snapshot.stream,在回调里 diff 出 currentSong /
-/// position 的变化,触发 lyric 加载 / 高亮推进。
-///
-/// 为什么不拆出 wrapper.currentSong / wrapper.position Rx:
-///   - wrapper.snapshot 是单一真相,拆出 6+ 个 Rx 容易双写不同步
-///   - 直接 stream.listen + 内部 diff 单测简单
-///
-/// 生命周期:
-/// - **permanent: true** (main.dart 注册),跟 wrapper 同生命周期
-/// - lyricController 实例跨切歌复用,跨页路由销毁
-/// - permanent 是为了跨路由(从 PlayerPage 跳到 PlayListPage 再回来)LyricView
-///   重新 mount 时能从 lyricNotifier.value 立刻拿到当前 lyric,不再重拉
+/// 生命周期:permanent(main.dart 注册)。跨路由返回时 LyricView 重新 mount 能从
+/// `lyricNotifier.value` 直接拿到当前 lyric,不用重拉。
 
 enum LyricShowMode {
   translation, // 显示翻译歌词
@@ -70,9 +52,8 @@ class LyricsController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    // 订阅 wrapper.snapshot 整体流,内部 diff 出当前歌 / 进度变化
-    // snapshot 每次都 new 一份(PlayOrderSnapshot.copyWith),stream 等价 onChange,
-    // 但我们只对 currentSong / position 字段变化感兴趣
+    // snapshot 每次都 new 一份(stream 等价 onChange),但我们只关心
+    // currentSong / position 两个字段的变化
     final storedName = _box.read<String>(lyricShowModeKey);
     final initialMode = LyricShowMode.values.firstWhere(
       (m) => m.name == storedName,
@@ -81,19 +62,13 @@ class LyricsController extends GetxController {
     lyricShowMode = initialMode.obs;
     final initial = _audio.snapshot.value;
     _lastPosition = initial.position;
-    // ⚠️ `_lastSong` **故意留 null**,不要填 initial.currentSong。
-    //
-    // [_onSnapshot] 是靠"歌变了"(`song?.id != _lastSong?.id`)触发歌词加载的,
-    // 下面那行 `_onSnapshot(initial)` 就是为了补上"启动这一刻的快照"
-    // —— 因为 wrapper 在 main.dart 里注册在 LyricsController **之前**,
-    // 启动恢复出来的那首歌早就在 snapshot 里了,变化事件已经发过,没人再通知。
-    //
-    // 如果先把 _lastSong 填成 initial.currentSong,首次 diff 恒为 false,
-    // 启动时缓存的那首歌就永远不加载歌词 —— 表现得像"歌词丢了",
-    // 非得手动切一次歌才出来。
+    // ⚠️ `_lastSong` **故意留 null**。[_onSnapshot] 靠"歌变了"
+    // (song?.id != _lastSong?.id)触发加载,而下面这行是补"启动这一刻的快照"
+    // —— wrapper 注册在 LyricsController 之前,恢复出来的那首歌早就在 snapshot
+    // 里了,变化事件早就发过,没人再通知。先填上就会让首次 diff 恒为 false,
+    // 启动时缓存的歌永远不加载歌词。
     _snapshotSub = _audio.snapshot.stream.listen(_onSnapshot);
     _onSnapshot(initial);
-    // 点击歌词行 → 直接 seek wrapper (不走 PlayerController facade)
     lyricController.setOnTapLineCallback(_audio.seek);
   }
 
@@ -291,12 +266,15 @@ class LyricsController extends GetxController {
     // 结束fetch,避免refreshCurrent时被防抖拦截
     _fetchingSongId = null;
     currentLyric.value = lyric.yrc ?? lyric.lrc ?? '';
-    Get.log("${lyric.yrc}");
-    Get.log("${lyric.tlyric}");
+    Get.log("[lyric] yrc: ${lyric.yrc}");
+    Get.log("[lyric] lrc: ${lyric.lrc}");
+    Get.log("[lyric] tlyric: ${lyric.tlyric}");
+
     // 一些歌只有 lrc(没有逐字版),有 yrc 的歌先用 lrc 的行时间覆写 yrc 再喂
     // flutter_lyric —— 行高亮跟人声对齐,翻译(tlyric/romalrc 都是 lrc 时间轴)
     // 也才配得上,否则 yrc 的自动打轴会差几百毫秒导致翻译全空
     final aligned = alignLyrics(lyric, Lyrics(lrc: lyric.lrc));
+    Get.log("[Lyric] loaded : ${_mainLyric(aligned)}");
     lyricController.loadLyric(
       _mainLyric(aligned),
       translationLyric: switch (lyricShowMode.value) {
@@ -309,9 +287,9 @@ class LyricsController extends GetxController {
 
   /// 翻译歌词(romaji 同理):非空白才给,并且**先把时间轴对齐到 lrc**。
   String? _translation(Lyrics aligned) {
-    final t = _nonBlank(aligned.tlyric);
+    final t = _realLyric(aligned.tlyric);
     if (t == null) return null;
-    return _alignTranslationToLrc(_nonBlank(aligned.lrc), t);
+    return _alignTranslationToLrc(_realLyric(aligned.lrc), t);
   }
 
   /// 把 tlyric 的行时间戳改写成主歌词(lrc)的时间戳 —— **精度无关**。
@@ -342,46 +320,76 @@ class LyricsController extends GetxController {
   String _alignTranslationToLrc(String? lrc, String tlyric) {
     if (lrc == null || lrc.trim().isEmpty) return tlyric;
 
-    // lrc 侧:每个"带时间戳的行"取**第一个**时间戳
-    final lrcTimes = <int>[];
-    for (final line in lrc.split('\n')) {
-      final m = _lrcTimeRe.firstMatch(line);
-      if (m != null) lrcTimes.add(_lrcTimeMs(m));
+    // lrc 侧:只要时间戳序列(谁在第几行不重要)
+    final lrcStamps = <int>[];
+    for (final l in _lyricLinesOf(lrc)) {
+      final ms = l.ms;
+      if (ms != null) lrcStamps.add(ms);
     }
-    if (lrcTimes.isEmpty) return tlyric;
+    if (lrcStamps.isEmpty) return tlyric;
 
-    // tlyric 侧:记下哪些行带时间戳(标签行 / 空行原样保留,不参与配对)
-    final lines = tlyric.split('\n');
-    final slots = <int>[];
-    final stamps = <int>[];
-    for (var i = 0; i < lines.length; i++) {
-      final m = _lrcTimeRe.firstMatch(lines[i]);
-      if (m != null) {
-        slots.add(i);
-        stamps.add(_lrcTimeMs(m));
-      }
-    }
-    if (slots.isEmpty) return tlyric;
+    // tlyric 侧:要行下标(回写时按位置替换)+ 时间戳(配对时用)。
+    // 只要 lrc 时间轴上的行 —— ms 为 null 的是 yrc 逐字行,不在这条轴上。
+    final tlyricLines = _lyricLinesOf(
+      tlyric,
+    ).where((e) => e.ms != null).toList();
+    if (tlyricLines.isEmpty) return tlyric;
 
-    final targets = _matchTranslationSlots(lrcTimes, stamps);
+    final targets = _matchTranslationSlots(
+      lrcStamps,
+      tlyricLines.map((e) => e.ms!).toList(),
+    );
 
-    final out = List<String>.of(lines);
+    final out = tlyric.split('\n');
     // 从后往前替换,前面的替换才不会顶掉后面的下标
-    for (var k = slots.length - 1; k >= 0; k--) {
+    for (var k = tlyricLines.length - 1; k >= 0; k--) {
+      final idx = tlyricLines[k].index;
       final t = targets[k];
       if (t == null) {
         // 匹配不上 → 丢掉。留着它就可能按自己的时间去误挂到别的行上。
-        out[slots[k]] = '';
+        out[idx] = '';
         continue;
       }
-      final line = out[slots[k]];
+      final line = out[idx];
       var rewritten = line;
       for (final tag in _lrcTimeRe.allMatches(line).toList().reversed) {
         rewritten = rewritten.replaceRange(tag.start, tag.end, _formatLrcMs(t));
       }
-      out[slots[k]] = rewritten;
+      out[idx] = rewritten;
     }
     return out.where((l) => l.trim().isNotEmpty).join('\n');
+  }
+
+  /// 一次扫描,挑出 text 里所有**真正的歌词行**,返回 (行下标, 时间戳ms)。
+  ///
+  /// 判定行身份的唯一入口是 [_hasLyricLine] —— 制作信息 JSON、纯标签行、
+  /// 空正文行都在那里被排除。这样"哪些算歌词行"只有一份定义:
+  /// [_realLyric](判空)和 [_alignTranslationToLrc](配对)不会各说各话。
+  ///
+  /// ⚠️ 判空和配对必须共用这一套判据。之前配对只看"有没有时间戳",于是
+  /// `[00:20.00]` 这种空行被当成一句翻译,凭空多占一个槽位,把真正能对上的翻译
+  /// 挤掉(行数判断也随之走偏)。
+  ///
+  /// **行下标**是必需的:回写时要按位置替换时间戳。yrc 逐字行返回 null 时间戳
+  /// (它的时间在 `[start,dur]` 行头里,不是 lrc 时间轴),但仍算歌词行。
+  List<({int index, int? ms})> _lyricLinesOf(String text) {
+    final out = <({int index, int? ms})>[];
+    final lines = text.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      if (!_hasLyricLine(lines[i])) continue;
+      out.add((index: i, ms: _timeStampOf(lines[i])));
+    }
+    return out;
+  }
+
+  /// 一行开头的 `[mm:ss.xx]` → ms;没有则 null。
+  ///
+  /// **只看行首**(firstMatch 而不是 hasMatch):lrc 允许一行多个时间戳
+  /// (`[00:12.00][01:30.00]同一句`),但作为"这行属于第几句"的标识只需要第一个,
+  /// 否则同一行会被当成两句、配对就乱了。
+  int? _timeStampOf(String line) {
+    final m = _lrcTimeRe.firstMatch(line);
+    return m == null ? null : _lrcTimeMs(m);
   }
 
   /// tlyric 的小数是 2 位还是 3 位全看上传者,只要落进这个容差就还能配上。
@@ -431,25 +439,74 @@ class LyricsController extends GetxController {
         '${cs.toString().padLeft(3, '0')}]';
   }
 
-  /// 主歌词选 yrc 还是 lrc。
+  /// 主歌词选 yrc 还是 lrc,都没有就显示"暂无歌词"。
   ///
-  /// **必须用"非空白"判断,不能用 `??`**:[LyricsRepository] 把上游缺失的字段
-  /// 规范成 **空字符串**(`(r.body['yrc']?['lyric'])?.toString() ?? ''`),不是 null。
-  /// 所以没有逐字版的歌,`aligned.yrc == ''` —— 而 `'' ?? fallback` 在 Dart 里
-  /// **返回空字符串本身**,于是 `loadLyric('')` → flutter_lyric 四个 parser
-  /// 全部 isMatch 失败 → FallbackParser 返回空 LyricModel → 界面一片空白,
-  /// 明明 lrc 里有词。
+  /// **不能用 `??` 判空**:[LyricsRepository] 把上游缺失的字段规范成 **空字符串**
+  /// (`(r.body['yrc']?['lyric'])?.toString() ?? ''`),不是 null。而 Dart 里
+  /// `'' ?? fallback` **返回空字符串本身**,于是 `loadLyric('')` →
+  /// flutter_lyric 四个 parser 全部 isMatch 失败 → FallbackParser 返回空
+  /// LyricModel → 界面一片空白,明明 lrc 里有词。
   String _mainLyric(Lyrics aligned) =>
-      _nonBlank(aligned.yrc) ?? _nonBlank(aligned.lrc) ?? '暂无歌词';
+      _realLyric(aligned.yrc) ?? _realLyric(aligned.lrc) ?? _noLyricPlaceholder;
+
+  /// "没有歌词"占位。
+  ///
+  /// **必须带 `[00:00.00]` 时间戳**:flutter_lyric 是按行首时间戳选 parser 的,
+  /// 裸字符串("暂无歌词")四个 parser 全不匹配 → FallbackParser → 空模型 →
+  /// 界面还是空白(实测),等于白给。带时间戳才会被 LrcParser 解析成一行。
+  static const _noLyricPlaceholder = '[00:00.00]暂无歌词';
 
   /// 空字符串 → null。给 flutter_lyric 的可选参数用(空串会走一遍无意义的解析)。
   String? _nonBlank(String? s) => (s == null || s.trim().isEmpty) ? null : s;
+
+  /// 空字符串 / **只有元信息没有歌词** → null。
+  ///
+  /// 后者是真实存在的坑:没有歌词的曲子,网易云仍然会返回这种内容 ——
+  /// ```
+  /// {"t":-1,"c":[{"tx":"作词: "},{"tx":"Glebs Pupkovs"},{"tx":"/"},{"tx":"Anait Karina Isahanova"}]}
+  /// {"t":-1,"c":[{"tx":"作曲: "},...]}
+  /// ```
+  /// 字符串**非空**(所以 `_nonBlank` 会放行),但一行歌词都没有,`t` 还是 -1。
+  /// 这种内容喂给 flutter_lyric 的实际结果:没有任何 parser 的行首规则能匹配
+  /// (JSON 不是 `[mm:ss.xx]` 也不是 `[start,dur]`),于是走 FallbackParser →
+  /// **空模型 → 界面空白**,用户看到的就是"这首歌没歌词",而不是明确的提示。
+  ///
+  /// 所以判空要多一层:**必须含有真正的歌词行**(lrc 行头带正文 / yrc 逐字行)。
+  ///
+  /// 顺带修掉的另一种表现:当元信息和真逐字歌词**共存**时(大多数正常歌曲都是),
+  /// `YrcParser._extractJsonLine` 会把 `{"t":0,"c":[{"tx":"作词: "}...]}` 当成
+  /// 歌词行渲染出来(`start = 0ms`),界面上凭空多一行"作词: xxx"。
+  /// (这个 `_realLyric` 管不了 —— 它只判"有没有歌词";要根治得在喂进去之前
+  /// 剥掉 JSON 行。)
+  String? _realLyric(String? text) {
+    final t = _nonBlank(text);
+    if (t == null) return null;
+    return _lyricLinesOf(t).isNotEmpty ? t : null;
+  }
+
+  /// 这一行是不是"真正的歌词行"。排除制作信息 JSON(`{"t":..,"c":[..]}`)、
+  /// 纯标签行(`[ti:..]`)和空正文行。
+  static bool _hasLyricLine(String line) {
+    final s = line.trim();
+    if (s.isEmpty) return false;
+    if (s.startsWith('{')) return false;
+    // lrc:有时间戳 且 去掉时间戳后还剩正文。要 replaceAll(而不是只去行首那个):
+    // `[00:12.00][01:30.00]同一句` 第二个时间戳会被误当成正文。
+    if (_lrcTimeRe.hasMatch(s)) {
+      if (s.replaceAll(_lrcTimeRe, '').trim().isNotEmpty) return true;
+    }
+    // yrc 逐字行:行头之后必须有音节。body **全部**由音节组成,所以判据是
+    // "有没有音节"而不是"去掉音节后还剩字" —— 后者恒为空,会误杀所有逐字行。
+    final header = _yrcHeaderRe.firstMatch(s);
+    if (header != null) {
+      return _yrcWordRe.hasMatch(s.substring(header.end));
+    }
+    return false;
+  }
 }
 
-/// yrc 逐字行里匹配到的一个 `(start,duration,zero)字` 片段
-///
-/// [start] / [end] 是它在**行内 body 字符串**中的偏移,回写时用来保留
-/// 逐字匹配覆盖不到的杂字符(理论上不该有,但别把用户的词改没了)。
+/// yrc 逐字行里的一个 `(start,duration,zero)字` 片段。[start] / [end] 是它在
+/// 行内 body 字符串中的偏移,回写时用来保留逐字匹配覆盖不到的杂字符。
 class _YrcWord {
   const _YrcWord(
     this.start,

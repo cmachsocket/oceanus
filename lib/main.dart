@@ -34,30 +34,22 @@ import 'models/Default.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // 全局 HttpClient UA 伪装:NetEase CDN 把 Dart 默认 UA 拉黑
-  // (Image.network 的 headers 参数在 Android 不一定生效,直接 override 最稳)
+  // 全局 HttpClient UA 伪装:Image.network 的 headers 在 Android 不一定生效
   HttpOverrides.global = NeteaseHttpOverrides();
-  // 桌面平台初始化 window_manager:必须在 TrayController 注册之前 (TrayController
-  // 用 windowManager.hide/show 切主窗口可见性 + macOS 上拦截关闭信号)。
-  // 移动端 / Web 直接跳过(platform_interface 内部对不支持的平台抛
-  // MissingPluginException,这里走 if-guard 防御)。
+  // 桌面平台必须在 TrayController 注册之前初始化(TrayController 靠它切窗口
+  // 可见性 + macOS 拦截关闭信号)。移动端 / Web 跳过。
   if (Platform.isLinux || Platform.isMacOS || Platform.isWindows) {
     await windowManager.ensureInitialized();
   }
   await GetStorage.init();
   Get.put<ThemeController>(ThemeController(), permanent: true);
-  // 网易云 SDK:启动 NcmApi (embedded node bridge) + 恢复持久化 cookie + 拉匿名 cookie。
-  // 必须在 GetStorage.init 之后(读 cookie / loggedIn flag)。
+  // 必须在 GetStorage.init 之后(要读 cookie / loggedIn flag)
   await initNeteaseApi();
-  // Repositories 集中 API 调用 —— 必须在依赖它们的 service / controller 之前 put。
-  // 构造注入 NeteaseApi, 注册顺序错误会编译期暴露 (README 阶段 1.1)。
   Get.put<LyricsRepository>(
     LyricsRepository(Get.find<NeteaseApi>()),
     permanent: true,
   );
-  // SettingsController 必须在 SongRepository 之前: SongRepository 构造时
-  // Get.find<SettingsController>() 取全局音质偏好。
-  // (ThemeController 同模式, onInit 同步读 GetStorage, 不需要 putAsync)
+  // SettingsController 必须在 SongRepository 之前(后者构造时 Get.find 它)
   Get.put<SettingsController>(SettingsController(), permanent: true);
   Get.put<SongRepository>(
     SongRepository(Get.find<NeteaseApi>(), Get.find<SettingsController>()),
@@ -67,8 +59,7 @@ Future<void> main() async {
     SearchRepository(Get.find<NeteaseApi>()),
     permanent: true,
   );
-  // PlaylistEventsController 必须在 PlaylistRepository 之前注册
-  // (PlaylistRepository 构造时 Get.find<PlaylistEventsController>() 拿事件中心)
+  // PlaylistEventsController 必须在 PlaylistRepository 之前(后者构造时 Get.find 它)
   Get.put<PlaylistEventsController>(
     PlaylistEventsController(),
     permanent: true,
@@ -105,12 +96,9 @@ Future<void> main() async {
   Get.put<LikedController>(LikedController(), permanent: true);
 
   // ---- 下载服务 (background_downloader 包装) ------------------------------
-  // 依赖 SongRepository (上面已经 put 好了)。
-  // Get.putAsync 是因为 init() 里有 await FileDownloader().start() 异步链,
-  // 不能放进 onInit (GetX _onStart 同步调 onInit 丢 future —— 见
-  // AudioPlayerService 注释里的 _onStart 引用)。putAsync 会 await builder
-  // 整链, 等 start + registerCallbacks + database 反序列化都完成才返回
-  // instance, 后续任何 Get.find<DownloadService>() 拿到的都是已就绪的。
+  // 用 putAsync 而不是 onInit:GetX 的 _onStart 同步调 onInit 并丢弃 future,
+  // 里面的 await FileDownloader().start() 会被丢掉。putAsync 会 await 整链,
+  // 之后任何 Get.find<DownloadService>() 拿到的都是已就绪的。
   await Get.putAsync<DownloadService>(() async {
     final svc = DownloadService(Get.find<SongRepository>());
     await svc.init();
@@ -118,41 +106,21 @@ Future<void> main() async {
   }, permanent: true);
 
   // ---- 本机 302 定向 server ----------------------------------------------------
-  // 让 just_audio 只拿一个稳定地址 (http://localhost:<port>/s/<songId>/xxx?q=),
-  // 真实 CDN 地址在播放器 prepare 那一刻才换 —— 网易云直链只有 ~20min 寿命,
-  // 提前存进队列的话排到队尾就过期了。起不来 (端口被占 / web) 时 enabled=false,
-  // 播放链路自动退回直连真实 URL,行为跟没引这个 server 一样。
-  // 依赖 SongRepository,所以必须放在 Repository 段之后、AudioPlayerService 之前。
+  // 让 just_audio 只拿稳定地址,真地址在 prepare 那一刻才换(网易云直链只有
+  // ~20min)。起不来时 enabled=false,播放链路自动退回直连。
   await Get.putAsync<LocalRedirectServer>(
     () => LocalRedirectServer(Get.find<SongRepository>()).init(),
     permanent: true,
   );
 
   // ---- 音频服务层 (唯一入口) -----------------------------------------------
-  // NewAudioPlayerService 把"PlayQueueService + 老 AudioPlayerService +
-  // PlaybackService + LyricsService"四者吸收到一个 wrapper + handler:
-  //   - 业务 API: playlist / currentIndex / mode / selectIndex / setMode /
-  //     playSong / playSongs / removeSong / nextIndex / prevIndex / fetchLyric /
-  //     invalidateLyric
-  //   - 音频命令: play / pause / seek / skipToNext / skipToPrevious
-  //   - 状态聚合: Rx<PlaybackSnapshot> (isPlaying/processingState/position/
-  //     bufferedPosition/currentSong/queue/currentIndex/playOrder/isCurrentSongLiked)
-  //   - 后台: AudioService.init 在 wrapper.init() 里跑 (handler 内部负责
-  //     audio_service + just_audio 桥接),单例 handler 暴露给锁屏/通知
+  // 注册顺序:Repository → wrapper → PlayerController → LyricsController。
   //
-  // 注册顺序要求:
-  //   1. Repository (SongRepository / LyricsRepository / LikedController) 在前
-  //      (handler 构造依赖)
-  //   2. wrapper 在 PlayerController 之前:PlayerController.onInit 会 Get.find 它
-  //   3. PlayerController 在 LyricsController 之前:lyricsController 订阅 currentSong
-  //   4. **用 Get.putAsync + builder 内 await wrapper.init()** —— 不能用
-  //      Get.put 后再显式 await init()(留一个"已注册但未初始化"的中间态
-  //      易被并发 Get.find 误用),也不能 override wrapper.onInit 放异步链
-  //      (GetX 的 `_onStart` 同步调用 onInit() 并丢弃 future,见
-  //      package:get/get_instance/src/lifecycle.dart _onStart)。
-  //      putAsync 会 await builder() 整链,builder 内显式调 wrapper.init()
-  //      等异步构造 (handler + stream 订阅) 全部就绪再返回 instance,
-  //      此时 PlayerController put 进去时 wrapper.audioHandler (late) 已赋值。
+  // wrapper **必须用 putAsync + builder 内 await init()**:不能用 Get.put 后再
+  // 显式 await(会留一个"已注册但未初始化"的中间态,并发 Get.find 会误用),
+  // 也不能 override onInit 放异步链(GetX 的 _onStart 同步调 onInit 并丢弃
+  // future)。putAsync 保证返回时 handler + stream 订阅都已就绪,之后 put
+  // PlayerController 时 audioHandler(already late)已赋值。
   await Get.putAsync<AudioPlayerService>(() async {
     final audioWrapper = AudioPlayerService();
     await audioWrapper.init();
@@ -164,18 +132,9 @@ Future<void> main() async {
     tag: DefaultValues.playerControllerTag,
     permanent: true,
   );
-  // LyricsController 依赖 PlayerController (订阅 currentSong) + wrapper.fetchLyric。
-  // 注册顺序: wrapper → PlayerController → LyricsController。
-  // **LyricsController 必须 permanent: true** — flutter_lyric 自己的 LyricController
-  // 实例持有高亮行/滚动位置/已加载 lyric 等状态, 跨 PlayPage 路由切换 (push/pop
-  // 后再进) 不重建才能保留这些状态; GetX 智能管理在路由 pop 时会销毁非 permanent
-  // controller (LyricsController.onClose 触发 lyricController.dispose()), lyric 状态
-  // 丢失。LyricsController **onInit 内的 wrapper.snapshot 订阅也会被 cancel + 重订**,
-  // 重建后立刻镜像一次 wrapper.snapshot, 但 LyricController 实例换新 → 高亮位置归零。
-  //
-  // PlayerController 不 permanent: 重建成本低 (onInit 里 ever<PlaybackSnapshot>
-  // 订阅立刻从 wrapper.snapshot 镜像一次), 跨路由切换重建不影响 Player UI
-  // (Obx 读到 wrapper 实时状态), 跟 LyricsController 解耦。
+  // LyricsController **必须 permanent**:flutter_lyric 的 LyricController 持有
+  // 高亮行 / 滚动位置 / 已加载 lyric,非 permanent 会在路由 pop 时被销毁
+  // (onClose → lyricController.dispose()),这些状态全丢。
   Get.put<LyricsController>(LyricsController(), permanent: true);
 
   // ---- 系统托盘 (桌面端) -------------------------------------------------------
