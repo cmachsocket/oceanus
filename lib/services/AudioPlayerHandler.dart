@@ -5,6 +5,7 @@ import 'package:just_audio/just_audio.dart';
 
 import '../SettingsPage/SettingsController.dart';
 import 'LikedController.dart';
+import 'LocalRedirectServer.dart';
 import 'repositories/SongRepository.dart';
 
 /// ---- 后台播放 handler (audio_service + just_audio 桥接) ------------------------
@@ -34,6 +35,7 @@ class AudioPlayerHandler extends BaseAudioHandler
     required this._songRepo,
     required this._likedService,
     required this._settings,
+    required this._redirect,
     List<MediaItem> initialQueue = const [],
     int initialIndex = -1,
     PlayOrder initialMode = PlayOrder.sequential,
@@ -77,10 +79,23 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   final SongRepository _songRepo;
   final LikedController _likedService;
+
   /// 全局音质偏好 (用户设置) —— 在 [_playAt] 拉 URL 时取当前值传给
   /// [SongRepository.fetchSongUrl], 走 `/song/url/v1` 接口。
   /// 改值不需要重启 handler, 下一次 _playAt 自动读到新值。
   final SettingsController _settings;
+
+  /// 本机 302 定向 server —— [_playAt] 把"给 just_audio 的地址"交给它生成。
+  ///
+  /// 开启时 handler **不再自己解析真 URL**:拿的是
+  /// `http://localhost:<port>/s/<songId>/xxx?q=<level>` 这种稳定地址,真地址由
+  /// server 在 prepare 那一刻解析并 302 出去 —— 网易云直链只有 ~20min 寿命,
+  /// 提前解析存进队列的话排到队尾必过期。
+  ///
+  /// server 没起来 (端口被占 / web) 时 [LocalRedirectServer.enabled] 为 false,
+  /// [_playAt] 退回自己 `fetchSongUrl` 直连,行为跟引入 server 之前完全一致。
+  final LocalRedirectServer _redirect;
+
   final AudioPlayer _audio = AudioPlayer();
 
   /// likedSongIds 变化的订阅 (用于锁屏 like 按钮 icon 实时更新)
@@ -232,7 +247,20 @@ class AudioPlayerHandler extends BaseAudioHandler
       playbackState.add(playbackState.value.copyWith(bufferedPosition: buf));
     });
 
-    // 6. likedSongIds 变化 → emit isCurrentSongLiked 给 wrapper 订阅,
+    // 6. 加载错误 → 走跟 setUrl 抛异常完全相同的失败路径
+    //
+    // 为什么必须有这条:302 路径下 `_audio.setUrl(本机地址)` **不会抛** ——
+    // server 只会回 302(成功)或 404(取不到地址),两种都是 HTTP 层正常返回。
+    // "这首起不来"变成播放器异步报的错,只在这里能观察到。以前靠
+    // `_playAt` 里 `fetchSongUrl` 返回 null 提前 return 来 fail-fast,
+    // 现在真地址解析在 server 里,handler 这层看不到,只能靠 errorStream。
+    _audio.errorStream.listen((e) {
+      final idx = _currentIndex;
+      if (idx < 0 || idx >= _queue.length) return;
+      _emitLoadError(idx, 'load failed: ${e.message} (${e.code})');
+    });
+
+    // 7. likedSongIds 变化 → emit isCurrentSongLiked 给 wrapper 订阅,
     //    同时重建 controls (锁屏 like 按钮 icon/label 实时更新)
     //
     // RxSet.stream 返回 Stream<Set<String>>,可以直接 .listen
@@ -403,6 +431,9 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   @override
   Future<void> prepareFromUri(Uri uri, [Map<String, dynamic>? extras]) async {
+    // **不经过本机 302 server**:这个入口的 uri 是平台侧给的外部地址
+    // (Android Auto / 系统媒体会话),不是我们队列里的 songId token,
+    // server 也解不出东西来。要拦它只能拦它自己(目前没有调用方)。
     await _audio.setUrl(uri.toString());
   }
 
@@ -505,21 +536,35 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   // ---- 内部:播放/索引计算 -------------------------------------------------------
 
-  /// 播放 [queueIndex] 对应的歌。会先把 extras.url 拉出来 setUrl,并把 queueIndex
-  /// 也写进 extras (wrapper 从 mediaItem 流读 currentIndex 用)。
+  /// 播放 [queueIndex] 对应的歌。会把 queueIndex 写进 extras (wrapper 从
+  /// mediaItem 流读 currentIndex 用)。
+  ///
+  /// 播放地址有两条路:
+  /// - **本机 302(默认)**:拿 [LocalRedirectServer.urlFor] 生成的稳定地址直接
+  ///   setUrl,真地址由 server 在 prepare 那一刻解析。好处是排队久了也不会过期,
+  ///   而且这条路径是同步的 —— 不存在"await 期间用户切歌"的 stale 竞态。
+  /// - **直连真地址(server 没起来时)**:自己 `fetchSongUrl`,保留 stale 校验。
   Future<void> _playAt(int queueIndex) async {
     if (queueIndex < 0 || queueIndex >= _queue.length) return;
     _currentIndex = queueIndex;
 
-    // 准备 URL:从 repo 拉真实 url (按当前用户音质偏好),写到 MediaItem.extras 里
-    final url = await _songRepo.fetchSongUrl(
-      _queue[queueIndex].id,
-      level: _settings.currentQuality.value.name,
-    );
-    if (url == null) return; // 取不到 URL 直接放弃 (上层 snackbar 另说)
-    // stale request 校验: await 期间用户可能又切了别的歌,
-    // 此刻 _currentIndex 已不是本次目标,丢弃这个过期的 fetch 结果
-    if (_currentIndex != queueIndex) return;
+    final songId = _queue[queueIndex].id;
+    final quality = _settings.currentQuality.value.name;
+
+    String? url;
+    if (_redirect.enabled) {
+      // 同步生成,没有 await 窗口 → 下面不需要 stale 校验
+      url = _redirect.urlFor(songId: songId, quality: quality).toString();
+    } else {
+      // 降级路径:按当前用户音质偏好直接拉真实 url
+      url = await _songRepo.fetchSongUrl(songId, level: quality);
+      if (url == null) return; // 取不到 URL 直接放弃 (上层 snackbar 另说)
+      // stale request 校验: await 期间用户可能又切了别的歌,
+      // 此刻 _currentIndex 已不是本次目标,丢弃这个过期的 fetch 结果
+      if (_currentIndex != queueIndex) return;
+    }
+    // 注意:这里写进 extras 的可能是本机 302 地址而不是 CDN 真地址
+    // (当前没有消费方读 extras['url'],保留只是为了调试时能看到实际 prepare 的东西)
     _queue[queueIndex] = _queue[queueIndex].copyWith(
       extras: {
         ...?_queue[queueIndex].extras,
@@ -528,43 +573,18 @@ class AudioPlayerHandler extends BaseAudioHandler
       },
     );
 
-    // setUrl 内部走 ExoPlayer prepare,会因 url 过期 / VIP / 地区限制 / 临时
-    // 5xx 抛 PlatformException (codec 0 = SourceError)。不 catch 会沿
-    // main.dart:107 Get.putAsync 的 builder await 链冒泡,GetX putAsync
-    // 不吞 future 异常 → app 启动直接 unhandled 崩。这里 catch 后 emit
-    // idle playbackState,wrapper 端 UI 能感知到失败;具体要不要自动 skipToNext
-    // 由 wrapper/UI 层决定 (handler 不替上层做播放策略, 单向流)。
+    // setUrl 内部走 prepare,会因地址失效 / VIP / 地区限制 / 临时 5xx 抛
+    // PlatformException (codec 0 = SourceError)。不 catch 会沿 main.dart 的
+    // Get.putAsync await 链冒泡,GetX putAsync 不吞 future 异常 → app 启动
+    // 直接 unhandled 崩。这里 catch 后 emit idle playbackState,wrapper 端 UI 能
+    // 感知到失败;具体要不要自动 skipToNext 由 wrapper/UI 层决定
+    // (handler 不替上层做播放策略, 单向流)。
     try {
       await _audio.setUrl(url);
     } catch (e, st) {
       // stale 校验同上面: await 期间用户切歌就丢弃这次失败,别污染当前状态
       if (_currentIndex != queueIndex) return;
-      // 标识这首起不来,UI 可以走 snackbar 路径
-      _queue[queueIndex] = _queue[queueIndex].copyWith(
-        extras: {
-          ...?_queue[queueIndex].extras,
-          'loadError': e.toString(),
-        },
-      );
-      mediaItem.add(_queue[queueIndex]);
-      playbackState.add(playbackState.value.copyWith(
-        playing: false,
-        processingState: AudioProcessingState.idle,
-        controls: _buildControls(isCurrentSongLiked: _likedService.isLiked(
-          _queue[queueIndex].id,
-          LikedType.song,
-        )),
-        // audio_service exposes this as an integer (there is no
-        // AudioServiceErrorCode enum in the version used by this project).
-        errorCode: 0,
-        errorMessage: 'setUrl failed: $e',
-      ));
-      // 跟 playerStateStream listener 一样保留 stack,debug 时能看
-      assert(() {
-        // ignore: avoid_print
-        print('AudioPlayerHandler._playAt: setUrl failed at idx=$queueIndex\n$st');
-        return true;
-      }());
+      _emitLoadError(queueIndex, 'setUrl failed: $e', st);
       return;
     }
 
@@ -582,6 +602,44 @@ class AudioPlayerHandler extends BaseAudioHandler
     // 切歌完成,同步当前歌的 liked 状态给 wrapper (修复: 旧实现只在
     // likedSongIds 变化时 emit,切歌后 isCurrentSongLiked 会停留在旧值)
     _emitCurrentSongLiked();
+  }
+
+  /// 标记 [queueIndex] 这首起不来:写 extras.loadError + emit idle/error 状态
+  ///
+  /// 两个来源共用:
+  /// - [_playAt] 里 `setUrl` 同步抛异常
+  /// - [_audio] 的 `errorStream` —— 302 路径下 setUrl **不会**抛(server 总是
+  ///   返回 302 或 404),取不到地址/被 CDN 拒是播放器异步报错,只能走这条流。
+  ///   旧路径(直连真地址)同样受益:404/超时也是异步来的。
+  void _emitLoadError(int queueIndex, String message, [StackTrace? st]) {
+    _queue[queueIndex] = _queue[queueIndex].copyWith(
+      extras: {...?_queue[queueIndex].extras, 'loadError': message},
+    );
+    mediaItem.add(_queue[queueIndex]);
+    playbackState.add(
+      playbackState.value.copyWith(
+        playing: false,
+        processingState: AudioProcessingState.idle,
+        controls: _buildControls(
+          isCurrentSongLiked: _likedService.isLiked(
+            _queue[queueIndex].id,
+            LikedType.song,
+          ),
+        ),
+        // audio_service exposes this as an integer (there is no
+        // AudioServiceErrorCode enum in the version used by this project).
+        errorCode: 0,
+        errorMessage: message,
+      ),
+    );
+    // 跟 playerStateStream listener 一样保留 stack,debug 时能看
+    assert(() {
+      // ignore: avoid_print
+      print(
+        'AudioPlayerHandler: load failed at idx=$queueIndex\n$message\n$st',
+      );
+      return true;
+    }());
   }
 
   /// 只读窥探下一首/上一首的 queue 索引 (不改状态)。

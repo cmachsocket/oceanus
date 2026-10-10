@@ -13,6 +13,7 @@ import 'LikedController.dart';
 import 'repositories/LyricsRepository.dart';
 import 'repositories/SongRepository.dart';
 import 'AudioPlayerHandler.dart';
+import 'LocalRedirectServer.dart';
 import '../models/Lyrics.dart';
 
 /// ---- 顶层包装层暴露给 UI 的快照 ------------------------------------------------
@@ -203,6 +204,7 @@ class AudioPlayerService extends GetxController {
         songRepo: _songRepo,
         likedService: _likedService,
         settings: _settings,
+        redirect: Get.find<LocalRedirectServer>(),
         initialQueue: initialItems,
         initialIndex: initialIndex,
         initialMode: savedMode,

@@ -26,6 +26,7 @@ import 'services/PlaylistEventsController.dart';
 import 'services/repositories/LibraryRepository.dart';
 import 'sdk/AuthController.dart';
 import 'services/DownloadService.dart';
+import 'services/LocalRedirectServer.dart';
 import 'services/TrayController.dart';
 import 'theme/ThemeController.dart';
 import 'widgets/netease_image.dart' show NeteaseHttpOverrides;
@@ -115,6 +116,17 @@ Future<void> main() async {
     await svc.init();
     return svc;
   }, permanent: true);
+
+  // ---- 本机 302 定向 server ----------------------------------------------------
+  // 让 just_audio 只拿一个稳定地址 (http://localhost:<port>/s/<songId>/xxx?q=),
+  // 真实 CDN 地址在播放器 prepare 那一刻才换 —— 网易云直链只有 ~20min 寿命,
+  // 提前存进队列的话排到队尾就过期了。起不来 (端口被占 / web) 时 enabled=false,
+  // 播放链路自动退回直连真实 URL,行为跟没引这个 server 一样。
+  // 依赖 SongRepository,所以必须放在 Repository 段之后、AudioPlayerService 之前。
+  await Get.putAsync<LocalRedirectServer>(
+    () => LocalRedirectServer(Get.find<SongRepository>()).init(),
+    permanent: true,
+  );
 
   // ---- 音频服务层 (唯一入口) -----------------------------------------------
   // NewAudioPlayerService 把"PlayQueueService + 老 AudioPlayerService +

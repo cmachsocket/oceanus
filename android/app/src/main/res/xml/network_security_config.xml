@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 网络安全配置
+
+  唯一目的:让 just_audio 能连本机的 302 定向 server (http://localhost:<port>)。
+
+  背景:minSdk = 31,targetSdk >= 28。Android 从 API 28 起默认禁止 cleartext
+  (明文 http),而官方只在 **API 37+** 对 loopback 给了隐式放行 —— 所以在
+  API 31~36 的设备上,不配这个文件的话 just_audio 请求 http://localhost 会被
+  直接拒掉 (Cleartext HTTP traffic to localhost not permitted),表现为
+  "所有歌都起不来 / 只有这个 App 自己发的请求正常"。
+
+  这里刻意 **只对 localhost / 127.0.0.1 开 cleartext**,其余域名维持默认的
+  全禁明文:base-config 保持 false,不给任何真实域名开口子。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- LocalRedirectServer 专用例外:只放行本机回环地址 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

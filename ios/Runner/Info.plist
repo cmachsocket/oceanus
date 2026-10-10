@@ -26,6 +26,17 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- LocalRedirectServer:just_audio 走本机 302 定向 server 时要连
+	     http://localhost:<port>。ATS 默认只允许 https,没这个例外的话
+	     AVPlayer 连本机直接被拒(所有歌起不来)。
+	     NSAllowsLocalNetworking 放行「不限域名 + .local + IP 地址」这一类
+	     本机回环连接 —— 这也是唯一该开的口子,别用 NSAllowsArbitraryLoads
+	     把全局明文 http 都放开。 -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

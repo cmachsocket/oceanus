@@ -27,6 +27,7 @@
     <application
         android:label="oceanus"
         android:name="${applicationName}"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:icon="@mipmap/ic_launcher">
         <!-- audio_service: 主 Activity 必须改名为 AudioServiceActivity
              (或者自定义 Activity 继承 AudioServiceActivity / AudioServiceFragmentActivity)
