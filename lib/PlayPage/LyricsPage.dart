@@ -32,7 +32,7 @@ class Lyrics extends StatelessWidget {
           color: scheme.onSurfaceVariant,
         ),
         activeStyle: textTheme.titleLarge?.copyWith(
-          color: scheme.primary,
+          color: scheme.secondary,
           fontWeight: FontWeight.bold,
         ),
         translationStyle: textTheme.titleMedium?.copyWith(
