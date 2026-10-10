@@ -129,6 +129,9 @@ class AudioPlayerService extends GetxController {
   StreamSubscription<List<MediaItem>>? _queueSub;
   StreamSubscription<bool>? _currentSongLikedSub;
   StreamSubscription<PlayOrder>? _playOrderSub;
+
+  /// handler 的 currentIndex 流订阅 (just_audio 推进 → UI 同步)
+  StreamSubscription<int>? _currentIndexSub2;
   // 持久化触发器: handler.mediaItem / .queue / .playOrder 任一变化 → debounce → _persist()
   // 覆盖 wrapper 没显式包装的命令 (skipToNext/Previous/自然播完/seek/setPlayOrder)
   Timer? _persistDebounce;
@@ -174,6 +177,26 @@ class AudioPlayerService extends GetxController {
       linux: true, // dependency: media_kit_libs_linux
       windows: true, // dependency: media_kit_libs_windows_audio
     );
+    // 必须放行 `ytdl` 协议,否则本机 302 server 起的地址 mpv 打不开。
+    //
+    // 现象(真机日志):
+    //   MPV: [error] stream: Failed to open http://localhost:PORT/s/<id>/<id>.mp3.
+    //   MPV: [error] ytdl_hook: Subprocess failed: init
+    // 原因: mpv 默认开着 ytdl_hook,凡是"看起来不是直链"的主机名(包括 localhost)
+    // 会先丢给 yt-dlp 去解析,yt-dlp 拿 `localhost` 当 YouTube 频道名去搜 → 失败 →
+    // 整个源 open 失败(所以后面只跟一个 "Failed to open",没有真正的网络错误)。
+    //
+    // `protocolWhitelist` 是 just_audio_media_kit 的静态开关,默认值只到
+    // http/https/file/...,不含 ytdl;我们把 mpv 允许的协议补齐到跟 mpv 默认
+    // 一致。IP 字面量(127.0.0.1)本身不走 ytdl_hook,所以这一条是双保险:
+    // URL 侧已经改成 127.0.0.1,这里再放开协议,两边都不会踩。
+    // (just_audio 自己的 header 代理也是靠同一条路径访问本机 HTTP server 的)
+    if (!JustAudioMediaKit.protocolWhitelist.contains('ytdl')) {
+      JustAudioMediaKit.protocolWhitelist = [
+        ...JustAudioMediaKit.protocolWhitelist,
+        'ytdl',
+      ];
+    }
 
     // ---- 持久化恢复: 在 handler 构造前同步读 GetStorage, 把真相状态
     // (queue / currentIndex / mode) 作为 handler 的初始值传入。
@@ -243,46 +266,37 @@ class AudioPlayerService extends GetxController {
     // 漏掉初始 emit)
     audioHandler.refreshPlayOrder();
 
-    // ---- 启动恢复: 触发 _playAt → fetch URL → setUrl -----------------------
-    // 之前 handler 只接了 initialQueue/initialIndex, 从不调 _playAt,
-    // 所以 just_audio 从未 setUrl, 用户点播放时 _audio.play() 是 no-op (没 source)
-    // 这里 skipToQueueItem 走 handler override (行 274) → _playAt(index),
-    // 会 fetch URL + setUrl + 把 currentIndex 写进 MediaItem.extras。
-    // 紧跟一个 pause() 保持"已恢复但不自动出声", 等用户点播放才 resume。
-    // (后续如果想恢复 wasPlaying 状态, 改成持久化 + 读 bool 即可,
-    //  本次先解决"点了没反应"这个最低优先级问题)
-    if (initialIndex >= 0 && initialItems.isNotEmpty) {
-      // 启动恢复: 触发 _playAt → fetch URL → setUrl -----------------------
-      // 之前 handler 只接了 initialQueue/initialIndex, 从不调 _playAt,
-      // 所以 just_audio 从未 setUrl, 用户点播放时 _audio.play() 是 no-op (没 source)
-      // 这里 skipToQueueItem 走 handler override (行 274) → _playAt(index),
-      // 会 fetch URL + setUrl + 把 currentIndex 写进 MediaItem.extras。
-      // 紧跟一个 pause() 保持"已恢复但不自动出声", 等用户点播放才 resume。
-      //
-      // **不在这里 await**: fetchSongUrl 是同步 HTTP 请求 (走 music.163.com),
-      // 在 Android 上 median 100-500ms, 移动网络/Wi-Fi 不稳时可能 1-3s,
-      // 且 Get.putAsync 会 await builder() 整链, 这一 await 会阻塞 runApp(),
-      // 用户看到闪屏一直卡住 (但 audio 已在播: media_kit 后端在 background
-      // isolate 上跑 setUrl, 跟主 isolate 等待是独立的)。
-      // 改成 fire-and-forget: AudioService.init 已经返回, 音频层可用,
-      // 可以后台恢复,UI 立刻渲染,不阻塞冷启动。
-      // ignore: discarded_futures
-      audioHandler
-          .skipToQueueItem(initialIndex)
-          .then((_) => audioHandler.pause());
-    }
+    // 订阅 handler 推的 currentIndex 流 → _currentIndexSub / snapshot.currentIndex
+    //
+    // 老实现是从 mediaItem.extras['queueIndex'] 反解的(handler 当时没有 index
+    // 的出口);现在 handler 直接把 just_audio 的 currentIndex 推出来,这里只订阅。
+    // 注意 snapshot.currentIndex 仍在 _onMediaItem 里一起更新 —— 两条流的
+    // 触发源相同(都是 currentIndex 变),值一致,谁先到都不影响最终状态。
+    _currentIndexSub2 = audioHandler.currentIndex.listen((idx) {
+      _currentIndexSub.value = idx;
+      snapshot.value = snapshot.value.copyWith(currentIndex: idx);
+    });
+
+    // ---- 启动恢复: 把持久化队列灌进 just_audio 的内置队列 -----------------------
+    // handler 构造时拿不到 Future(构造函数不能 await),所以真正的
+    // `setAudioSources` 在 handler.restore() 里,这里补一次 await。
+    //
+    // await 的是 setAudioSources + 首项 prepare,**不 await 播放**,所以冷启动
+    // 不会因为网络慢而卡住 runApp();而且恢复后 queue / currentIndex / loopMode
+    // 一次到位,不用再像老实现那样"skipToQueueItem + pause"两段式(那条路径
+    // 现在天然由 restore 完成:initialIndex 直接给 just_audio,playWhenReady=false)。
+    await audioHandler.restore();
 
     // ---- 持久化自动触发已就绪 ----
-    // init() 上半段 (行 187-209) 已经在 _onMediaItem / _onQueue / playOrder
+    // init() 上半段已经在 _onMediaItem / _onQueue / currentIndex / playOrder
     // listener 内部追加了 _schedulePersist() 调用,覆盖所有状态变化路径:
-    //   - skipToNext/Previous → handler 内部 _playAt → mediaItem.add
-    //   - 自然播完推进      → playerStateStream.completed → _playAt → mediaItem.add
-    //   - skipToQueueItem   → 同上
-    //   - setPlayOrder      → handler 内部 _playOrder = ... → playOrder.add
-    //   - setQueue/updateQueue → queue.add
-    // 设置 flag 让 listener 在恢复期结束后开始写盘 (避免 init() 末尾的
-    // skipToQueueItem+pause 触发的 emit 把"刚恢复的值"再写回 —— 虽然语义
-    // 上等价,但属于浪费 IO,且容易干扰调试日志)。
+    //   - skipToNext/Previous   → just_audio 推进 currentIndex → currentIndex 流
+    //   - 自然播完推进          → 原生后端自动加载下一首 → currentIndex 流
+    //   - skipToQueueItem       → seek(index:) → currentIndex 流
+    //   - setPlayOrder          → just_audio loopMode/shuffle → playOrder 流
+    //   - setQueue/add/remove   → sequence 变 → queue 流
+    // 设置 flag 让 listener 在恢复期结束后开始写盘 (避免 init() 期间的 emit
+    // 把"刚恢复的值"再写回 —— 虽然语义上等价,但属于浪费 IO,且干扰调试日志)。
     _persistReady = true;
   }
 
@@ -300,6 +314,7 @@ class AudioPlayerService extends GetxController {
     _queueSub?.cancel();
     _currentSongLikedSub?.cancel();
     _playOrderSub?.cancel();
+    _currentIndexSub2?.cancel();
     audioHandler.stop();
     super.onClose();
   }
@@ -325,16 +340,11 @@ class AudioPlayerService extends GetxController {
       return;
     }
     final song = _itemToSong(item);
-    // queueIndex 由 handler 写在 MediaItem.extras['queueIndex'] 里
-    // (避免 wrapper 依赖 _onQueue 和 _onMediaItem 之间的 stream 时序)
-    final idx = item.extras?['queueIndex'] as int? ?? -1;
-    snapshot.value = snapshot.value.copyWith(
-      currentSong: song,
-      currentIndex: idx,
-    );
-    // 业务层 currentIndex 同步
-    _currentIndexSub.value = idx;
-    _schedulePersist(); // 当前索引变化 → 写盘 (覆盖 skipToNext/Previous/自然播完/skipToQueueItem/_playAt)
+    // currentIndex **不再**从 extras['queueIndex'] 读:那条通道是给"handler 没有
+    // index 出口"的老实现准备的。现在 handler 把 just_audio 的 currentIndex
+    // 推在独立流上(见 init() 里的 _currentIndexSub2 订阅),这里只管 song。
+    snapshot.value = snapshot.value.copyWith(currentSong: song);
+    _schedulePersist(); // 当前曲变化 → 写盘 (覆盖切歌)
   }
 
   void _onQueue(List<MediaItem> q) {
@@ -347,14 +357,6 @@ class AudioPlayerService extends GetxController {
     _schedulePersist(); // 队列变化 → 写盘 (覆盖 updateQueue/setQueue/addToQueue/insertToQueue)
   }
 
-  // 注意:不再单独订阅 handler 的 currentIndex 变化。currentIndex 由 handler
-  // 在 emit MediaItem 时通过 extras['queueIndex'] 一并带过来,_onMediaItem
-  // 里直接读。这样设计是因为:
-  //   1. mediaItem 流已经覆盖了所有 currentIndex 变化的场景 (切歌=mediaItem 变)
-  //   2. 单独 addListener 会出现两个 stream 到达 wrapper 的时序不一致风险
-  //   3. ValueNotifier 在 handler 不是 GetxController 时确实合规,但没必要
-  //      多开一条 channel
-
   // ---- UI 转发到 handler ---------------------------------------------------------
 
   Future<void> play() => audioHandler.play();
@@ -366,13 +368,13 @@ class AudioPlayerService extends GetxController {
   Future<void> skipToQueueItem(int index) =>
       audioHandler.skipToQueueItem(index);
 
-  /// 替换整个队列。传入 Song 列表,内部翻成 MediaItem 并刷新 shuffle 映射。
+  /// 替换整个队列。传入 Song 列表,内部翻成 MediaItem 交给 handler。
   ///
   /// `duration: s.duration` 一起传入 MediaItem —— wrapper._itemToSong 翻译
   /// 时会取回 Song.duration,这样 `playlist[i].duration` 在切歌前就有合理值
   /// (否则 UI 进度条 / 队列列表里非当前歌曲显示 0:00)。
-  /// handler `_playAt` 后 just_audio durationStream 会 emit 真值,handler
-  /// 再用 `item.copyWith(duration: dur)` 覆盖一次(更准)。
+  /// 真时长仍以 just_audio 的 durationStream 为准,handler 会用带真时长的那份
+  /// MediaItem 重发 mediaItem(更准)。
   Future<void> setQueue(List<Song> songs, {int startIndex = 0}) {
     final items = songs
         .map(
@@ -426,7 +428,7 @@ class AudioPlayerService extends GetxController {
   /// 上层 (PlayerController / LyricsController 等) 想"按 like 按钮"时调
   /// 此方法, 不直接 Get.find<LikedController>().toggle() — 走 wrapper 集中:
   ///   - 依赖收敛: 上层 controller 只依赖 wrapper, 不需要直接 import LikedController
-  ///   - 链路清晰: `UI → wrapper.toggleFavorite → _likedService.toggle →
+  ///     链路清晰: `UI → wrapper.toggleFavorite → _likedService.toggle →
   ///     likedSongIds 变化 → handler._likedSongIdsSub 监听 →
   ///     _currentSongLikedCtrl.add → wrapper snapshot.isCurrentSongLiked 更新 →
   ///     PlayerController.isLiked 镜像 → UI Obx 刷新` (整链单向流)
@@ -457,31 +459,14 @@ class AudioPlayerService extends GetxController {
   }
 
   /// 计算"下一首要播的索引"(不修改 currentIndex)
-  int nextIndex() {
-    if (playlist.isEmpty) return -1;
-    switch (mode.value) {
-      case PlayOrder.sequential:
-        return (_currentIndexSub.value + 1) % playlist.length;
-      case PlayOrder.shuffle:
-        return audioHandler.peekNeighbor(1);
-      case PlayOrder.repeatOne:
-        return _currentIndexSub.value;
-    }
-  }
+  ///
+  /// 直接问 just_audio(`nextIndex` / `previousIndex` 已经把 LoopMode 的循环
+  /// 语义和 shuffle 顺序算好了)。wrapper 这层**不再自己算**,避免和 handler
+  /// 的播放顺序出现第二套逻辑。
+  int nextIndex() => audioHandler.peekNeighbor(1);
 
   /// 计算"上一首要播的索引"(不修改 currentIndex)
-  int prevIndex() {
-    if (playlist.isEmpty) return -1;
-    switch (mode.value) {
-      case PlayOrder.sequential:
-        final p = _currentIndexSub.value - 1;
-        return p < headOfTheQueue ? tailOfTheQueue : p;
-      case PlayOrder.shuffle:
-        return audioHandler.peekNeighbor(-1);
-      case PlayOrder.repeatOne:
-        return _currentIndexSub.value;
-    }
-  }
+  int prevIndex() => audioHandler.peekNeighbor(-1);
 
   /// 队列里删一首 (UI 调)
   void removeSong(int index) {
