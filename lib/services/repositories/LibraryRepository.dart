@@ -5,13 +5,9 @@ import '../../sdk/ApiCall.dart';
 import '../../models/ApiException.dart';
 import '../../sdk/NeteaseApi.dart';
 
-/// 首页推荐 + 我的页三个 tab 的 API 集中仓库。
+/// 首页推荐 + 我的页三个 tab 的 API 集中仓库,只负责调 API + 解析 + 返回强类型列表。
 ///
-/// 原先散落在 HomeController（personalized）和
-/// LibraryController（user_playlist / album_sublist / user_follow_mixed）里，
-/// 这里只负责调 API + 解析 + 返回强类型列表。
-///
-/// - **不做** RxList / isLoading / error 写回 —— 这些是业务流程，留在 controller。
+/// - **不做** RxList / isLoading / error 写回 —— 这些是业务流程,留在 controller。
 class LibraryRepository extends GetxService {
   final NeteaseApi _api;
 

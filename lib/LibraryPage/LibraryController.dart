@@ -18,7 +18,6 @@ enum LibraryTab {
   /// 网易云后端的 tab id (供 SDK / 个人中心等接口引用)
   final int id;
 
-  /// UI 显示文案
   final String label;
   final IconData icon;
 }
@@ -32,10 +31,6 @@ enum LibraryTab {
 ///
 /// **未登录时**：不调接口，展示"请先登录"占位卡
 class LibraryController extends GetxController {
-  /// 当前 tab (默认歌单)
-  ///
-  /// **不用裸 int** —— enum 在编译期挡住 setTab(99) 这种垃圾值，
-  /// switch 也带 exhaustiveness 检查（加新 tab 时漏一个 case 编译器报错）。
   final Rx<LibraryTab> tab = LibraryTab.playlists.obs;
   Worker? _loginWorker;
 
@@ -44,14 +39,9 @@ class LibraryController extends GetxController {
   final LikedController _likedService = Get.find<LikedController>();
   final AuthController _auth = Get.find<AuthController>();
 
-  // 创建歌单 UI 状态
-  //
-  // - isCreating: dialog 显示中(防止用户重复点 FAB 触发多个 dialog)
-  // - createError: 上一次创建失败的提示(reload 后清空)
-  //
-  // 真正的"返回新歌单 id"在 addPlaylist() 内是局部 Future<String?> 不暴露,
-  // 调用方只需要 reload playlists 列表(响应: _playlistRepo.createPlaylist
-  // 成功后 SDK 已经写盘,LibraryRepository 重新拉会带上新歌单)。
+  // 创建歌单 UI 状态:isCreating 防止重复点 FAB 弹出多个 dialog;
+  // createError 是上一次创建失败的提示。新歌单 id 不对外暴露,成功后
+  // 重新 loadPlaylists 即可拿到(createPlaylist 成功后 SDK 已写盘)。
   final RxBool isCreating = false.obs;
   final RxnString createError = RxnString();
 
@@ -85,7 +75,6 @@ class LibraryController extends GetxController {
 
   void setTab(LibraryTab t) {
     tab.value = t;
-    // 切换时按需触发加载（只在未加载过且未在加载中时）
     _loadVisibleTab();
   }
 
@@ -142,37 +131,27 @@ class LibraryController extends GetxController {
     artistsLoading.value = false;
   }
 
-  /// 查询某歌单 id 是否被当前用户收藏
-  ///
-  /// - 调用方**必须包 Obx**才能响应 likedPlaylistIds 变化
-  /// - 转发到 [LikedController.isLiked] (LikedType.playlist)
+  /// 查询某歌单 id 是否被当前用户收藏。调用方**必须包 Obx**才能响应 likedPlaylistIds 变化
   bool isPlaylistLiked(String playlistId) =>
       _likedService.isLiked(playlistId, LikedType.playlist);
 
-  /// toggle 收藏（转发到 [LikedController.toggle], LikedType.playlist）
   void togglePlaylistLike(String playlistId) {
     // ignore: discarded_futures
     _likedService.toggle(playlistId, LikedType.playlist);
   }
 
-  /// 查询某专辑 id 是否被收藏
   bool isAlbumLiked(String albumId) =>
       _likedService.isLiked(albumId, LikedType.album);
 
-  /// toggle 专辑收藏
   void toggleAlbumLike(String albumId) {
     // ignore: discarded_futures
     _likedService.toggle(albumId, LikedType.album);
   }
 
-  /// 查询某艺人 id 是否被关注
   bool isArtistLiked(String artistId) =>
       _likedService.isLiked(artistId, LikedType.artist);
 
-  /// toggle 关注 + 主动同步后端真值
-  ///
-  /// 在 LibraryPage 关注艺人列表的 card 首次 build 时，onFirstBuild 注入 syncSingle
-  /// （本 controller 不再负责卡片首次 build 触发，那是 widget 层职责）
+  /// toggle 关注/取关艺人
   void toggleArtistLike(String artistId) {
     // ignore: discarded_futures
     _likedService.toggle(artistId, LikedType.artist);
@@ -181,7 +160,7 @@ class LibraryController extends GetxController {
   /// 主动同步单点艺人的后端关注状态
   ///
   /// LibraryPage 关注艺人列表 card 首次 build 时调一次
-  /// （Service 启动 loadAll 只拉 /artist/sublist 全量，单点 id 不在里面）
+  /// (Service 启动 loadAll 只拉 /artist/sublist 全量,单点 id 不在里面)
   Future<void> syncArtistFollowState(String artistId) {
     // ignore: discarded_futures
     return _likedService.syncArtistLike(artistId);
@@ -196,23 +175,14 @@ class LibraryController extends GetxController {
   /// 创建新歌单 —— 由 LibraryPage FAB 触发
   ///
   /// 流程:
-  /// 1. 登录态自检(未登录直接 toast 退出,不弹 dialog 免得用户输入完才发现没用)
+  /// 1. 登录态自检(未登录直接 toast,不弹 dialog 免得用户输入完才发现没用)
   /// 2. 弹 AlertDialog 输入名字(空 / 取消 → 退出)
-  /// 3. 调 [_playlistRepo.createPlaylist]
-  /// 4. 成功 → 重新拉 playlists 列表(新歌单会出现在 Library tab)
-  /// 5. 失败 → 写 [createError] 让 dialog 显示错误文案
+  /// 3. 调 [_playlistRepo.createPlaylist],成功 → loadPlaylists 刷新列表,
+  ///    失败 → 写 [createError] 让 dialog 显示错误文案
   ///
-  /// TODO(addTracks):长按歌曲"加入歌单"对话框待实现;目前只暴露创建入口。
-  /// 后续可以扩展 `showAddToPlaylistSheet(context, List<String> songIds)` 方法
-  /// 走 [PlaylistRepository.addTracks],需要先拉当前用户的歌单列表(目前
-  /// `playlists` 已经是),从里面选目标。
-  ///
-  /// 返回 Future<void] 是为了让 `// ignore: discarded_futures` 仍然成立
-  /// (LibraryPage.dart:24 调用点 `onPressed: controller.addPlaylist`,
-  ///  void 改成 Future<void] 后 IconButton.onPressed 是 `VoidCallback?`,
-  /// 这里返回的是 Future, 但 onPressed 是同步 VoidCallback; Dart 会隐式
-  /// 把 `Future<void> Function()` 转成 `VoidCallback` 但 lint 会警告。
-  /// 当前调用点已写 `// ignore: discarded_futures` 兜底,所以保留 Future)。
+  /// 声明成 `void ... async` 而不是 `Future<void>`:调用点是
+  /// `IconButton.onPressed`(`VoidCallback?`),返回 Future 会被
+  /// discarded_futures 警告,调用点已写 `// ignore: discarded_futures` 兜底。
   void addPlaylist() async {
     if (isCreating.value) return;
     if (!_auth.loggedIn) {
@@ -230,18 +200,13 @@ class LibraryController extends GetxController {
         createError.value = '创建失败,稍后重试';
         return;
       }
-      // 成功 → reload 当前 tab(playlist tab)列表
       await loadPlaylists();
     } finally {
       isCreating.value = false;
     }
   }
 
-  /// 弹一个简单 AlertDialog 让用户输入歌单名字。
-  ///
-  /// 返回:
-  /// - 非空字符串(用户确认)
-  /// - `null`(用户取消)
+  /// 弹一个简单 AlertDialog 让用户输入歌单名字。返回名字,取消返回 `null`。
   Future<String?> _promptPlaylistName() async {
     // 注意：不要把 createError 用 Obx 放进这个 dialog。
     //

@@ -117,65 +117,45 @@ class AudioPlayerHandler extends BaseAudioHandler
       return;
     }
     final index = _initialIndex.clamp(0, _initialQueue.length - 1);
-    // playWhenReady: false —— 启动只恢复队列,不自动开始播
-    // (老实现是 init() 末尾 skipToQueueItem + pause)
+    // play: false —— 启动只恢复队列,不自动出声,等用户点播放
     await _setPlaylist(_initialQueue, index, play: false);
     await _applyPlayOrder(_initialMode);
   }
 
-  /// likedSongIds 变化的订阅 (用于锁屏 like 按钮 icon 实时更新)
   StreamSubscription<Set<String>>? _likedSongIdsSub;
 
-  /// 当前歌曲是否被喜欢 — 推送给上层 wrapper 同步 snapshot.isCurrentSongLiked
-  ///
-  /// 设计: 不用 refreshIsLiked() 公开方法让上层调,handler 主动 emit bool 流,
-  /// wrapper 直接订阅 ([_currentSongLiked] getter)。事件源两个:
-  ///   1. likedSongIds 变化 (在 _wireAudioStreams 里 listen)
-  ///   2. _currentItem 变化 (在 _playAt / removeQueueItemAt 等 emit mediaItem 时
-  ///      顺手 _currentSongLiked.add(...))
-  /// wrapper 拿到 bool 后,copyWith(snapshot.isCurrentSongLiked) 一行搞定
+  /// 当前歌的 liked 状态,推给 wrapper 同步 snapshot.isCurrentSongLiked。
+  /// handler 主动 emit 而不是让上层调 refreshXxx:事件源有两个
+  /// (likedSongIds 变化 + _currentItem 变化),都发生在 handler 内部。
   final StreamController<bool> _currentSongLikedCtrl =
       StreamController<bool>.broadcast();
 
-  /// 公开给 wrapper 订阅 (handler 主动 emit 当前歌的 like 状态)
   Stream<bool> get currentSongLiked => _currentSongLikedCtrl.stream;
 
-  /// 主动刷一次当前歌的 liked 状态 (broadcast 无 replay,wrapper 订阅后兜底用)
+  /// broadcast 无 replay,wrapper 订阅后兜底刷一次
   void refreshCurrentSongLiked() => _emitCurrentSongLiked();
 
-  /// 播放顺序变化流 — 推送给 wrapper 同步 _playOrderSub
-  ///
-  /// 设计: 跟 currentSongLiked 一样,handler 只做翻译,真相在 just_audio
-  /// (LoopMode + shuffleModeEnabled)。[setPlayOrder] 改完、以及原生侧自己改
-  /// loopMode 时(见 [_wireAudioStreams] 第 2 段)都会 emit,wrapper 只订阅。
+  /// 播放顺序变化流。真相在 just_audio(LoopMode + shuffleModeEnabled),
+  /// [setPlayOrder] 改完、以及原生侧自己改 loopMode 时都会 emit。
   final StreamController<PlayOrder> _playOrderCtrl =
       StreamController<PlayOrder>.broadcast();
 
-  /// 公开给 wrapper 订阅 (handler 主动 emit 播放顺序)
   Stream<PlayOrder> get playOrder => _playOrderCtrl.stream;
 
-  /// 主动刷一次当前 playOrder (broadcast 无 replay, wrapper 订阅后兜底用)
   void refreshPlayOrder() => _playOrderCtrl.add(_playOrder);
 
-  /// 当前索引变化流 —— 给 wrapper 同步 snapshot.currentIndex / RxInt currentIndex。
-  ///
-  /// 老实现是 handler 把 queueIndex 写进 `MediaItem.extras['queueIndex']`,
-  /// wrapper 从 mediaItem 流里反解 —— 耦合且容易和队列变动错位。现在 index
-  /// 有独立出口:just_audio 的 sequenceState → handler → 这条流。
+  /// 当前索引变化流,wrapper 同步 snapshot.currentIndex / RxInt currentIndex。
   Stream<int> get currentIndex => _currentIndexCtrl.stream;
 
-  /// 主动刷一次当前索引 (broadcast 无 replay,启动恢复后兜底用)
   void refreshCurrentIndex() => _currentIndexCtrl.add(_currentIndex);
 
   final StreamController<int> _currentIndexCtrl =
       StreamController<int>.broadcast();
 
-  // ---- sequenceState 的 diff 缓存 ------------------------------------------------
+  // sequenceStateStream 是热路径(见 _wireAudioStreams 第 2 段),靠这几个字段把
+  // "到底哪一类变了"拆出来,绝大多数 position tick 在第一步就 return。
   //
-  // sequenceStateStream 是热路径(见 _wireAudioStreams 第 2 段的注释),靠这三个
-  // 字段把"到底哪一类变了"拆出来,绝大多数 position tick 会在第一步就 return。
-  //
-  // 队列长度用 `_audio.audioSources.length`(O(1));`audioSources` 返回的是
+  // 队列长度用 `_audio.audioSources.length`(O(1))。`audioSources` 返回的是
   // ConcatenatingAudioSource.children 这个**稳定的 List 实例**,增删都是原地
   // replaceRange,所以只能靠长度判变,不能靠实例身份。
   int? _lastSequenceLength;
@@ -183,13 +163,11 @@ class AudioPlayerHandler extends BaseAudioHandler
   PlayOrder? _lastEmittedOrder;
   MediaItem? _lastEmittedItem;
 
-  /// 作废队列长度缓存,强制下一条 sequenceState 通知重发一次 queue。
-  ///
-  /// 只有一种情况需要:`setAudioSources` 的"等长替换"(新旧队列长度相同但内容全
-  /// 换了,比如换了个歌单但歌数一样)。增删会改长度,不需要这里操心。
+  /// 作废长度缓存,强制下一条 sequenceState 重发 queue。只为"等长替换"
+  /// (换了个歌单但歌数一样)准备;增删会改长度,不用操心。
   void _invalidateSequenceCache() => _lastSequenceLength = null;
 
-  /// 释放 handler 持有的订阅 (handler dispose 时由 audio_service 框架调用)
+  /// audio_service 框架在 handler dispose 时调用
   void dispose() {
     _likedSongIdsSub?.cancel();
     _likedSongIdsSub = null;
@@ -198,12 +176,9 @@ class AudioPlayerHandler extends BaseAudioHandler
     _currentIndexCtrl.close();
   }
 
-  // ---- 队列快照 (全部从 just_audio 反查,不再自己存) -----------------------------
+  // ---- 队列快照(全从 just_audio 反查,不自己存副本) -----------------------------
 
-  /// 队列快照:MediaItem 存在每个 AudioSource 的 `tag` 里。
-  ///
-  /// 老实现这里是一份独立的 `_queue` 字段,跟 just_audio 的 playlist 各存一份,
-  /// 任何一处漏更新就会出现"UI 列表和实际播放不一致"。现在只有一份。
+  /// MediaItem 存在每个 AudioSource 的 `tag` 里 —— 只此一份,没有第二份要去同步。
   List<MediaItem> get _items => _audio.audioSources
       .whereType<IndexedAudioSource>()
       .map((s) => s.tag)
@@ -227,30 +202,21 @@ class AudioPlayerHandler extends BaseAudioHandler
     return _shuffleOrder.isEmpty ? PlayOrder.sequential : PlayOrder.shuffle;
   }
 
-  /// 只读暴露给 wrapper 的 _persist 用 (避开 Rx 异步滞后的旧值)。
+  /// 只读暴露给 wrapper 的 _persist 用(避开 Rx 异步滞后的旧值)。
   int get persistedIndex => _currentIndex;
   PlayOrder get persistedMode => _playOrder;
   List<MediaItem> get persistedQueue => List.unmodifiable(_items);
-  // 注:currentIndex 不再从 MediaItem.extras 里读。老实现把 queueIndex 塞进
-  // extras 再让 wrapper 反解,是因为 handler 当时没有 index 的出口;现在直接
-  // 用 [currentIndex] 这条流(wrapper 订阅),extras 不再承担传输职责。
 
   // ---- 订阅接线 (在构造里跑一次) -------------------------------------------------
 
   void _wireAudioStreams() {
     // 1. 播放状态 → playbackState
     //
-    // **不再在这里做"播完自动下一首"**:老实现因为是 setUrl 单曲驱动
-    // (just_audio 没有 playlist,currentIndex 永远是 0),必须手动监听
-    // completed → _neighbor(1) → _playAt(next)。现在队列交给
-    // setAudioSources,**自动推进是 just_audio / 原生后端(mpv / ExoPlayer)
-    // 自己的事**:加载到下一首、currentIndexStream 推进、processingState
-    // 重新进 loading。completed 只在整个队列走完(或 LoopMode 不是 all/one
-    // 且到末尾)时才出现 —— 这里保留原样映射即可。
+    // 这里**不做"播完自动下一首"**:队列交给 setAudioSources 之后,自动推进是
+    // just_audio / 原生后端(mpv / ExoPlayer)自己的事,completed 只在整个队列
+    // 走完(或 LoopMode 不是 all/one 且到末尾)时才出现。
     _audio.playerStateStream.listen((state) {
-      // liked 状态查 _likedService.isLiked (实时查,不缓存);
-      // 这里在 playerStateStream 顺带把 controls 同步上 (因为 controls 含 playing
-      // 状态,play 状态变化时也要 rebuild,此时再带一次最新 liked)
+      // liked 实时查不缓存;controls 里含 playing 状态,顺带一起 rebuild
       final liked = _likedService.isLiked(
         _currentItem?.id ?? '',
         LikedType.song,
@@ -309,9 +275,9 @@ class AudioPlayerHandler extends BaseAudioHandler
         super.updateQueue(_items.toList());
       }
 
-      // **队列非空但 currentIndex 还没到**时(刚 setAudioSources,平台层还没把
-      // 索引报回来 —— just_audio 是先 _broadcastSequence() 再 platform.load()),
-      // _currentItem 会是 null。此时**绝不能**发 null:那会把
+      // **队列非空但 currentIndex 还没到**时(刚 setAudioSources,平台层还没报
+      // 回索引 —— just_audio 是先 _broadcastSequence() 再 platform.load()),
+      // _currentItem 是 null。此时**绝不能**发 null:那会把
       // snapshot.currentSong 打成 null,LyricsController 立刻 loadLyric('')
       // 把歌词清空。只有队列真的空了才算"没有当前歌"。
       final item = _audio.audioSources.isEmpty ? null : _currentItem;
@@ -326,9 +292,9 @@ class AudioPlayerHandler extends BaseAudioHandler
 
     // 3. 时长变化 → 更新当前 MediaItem 的 duration
     //
-    // tag 里的 MediaItem 是不可变的快照,改不了;这里只把带真时长的这份
-    // 发给 audio_service(锁屏进度条 + UI 显示用)。队列里其他歌仍用
-    // Song.toMediaItem 时带的 duration,切到那首时它才被真值覆盖。
+    // tag 里的 MediaItem 不可变改不了;只把带真时长的这份发给 audio_service
+    // (锁屏进度条用)。队列里其他歌仍用 Song.toMediaItem 的静态 duration,
+    // 切到那首时才被真值覆盖。
     _audio.durationStream.listen((dur) {
       if (dur == null) return;
       final item = _currentItem;
@@ -349,21 +315,16 @@ class AudioPlayerHandler extends BaseAudioHandler
 
     // 6. 加载错误 → 统一的失败路径
     //
-    // 为什么这是唯一的失败来源:地址解析搬到了本机 302 server,`setAudioSources`
-    // 只会拿到 `http://localhost:<port>/s/<songId>/xxx` 这种必然"可达"的地址 ——
-    // 取不到真地址(404)、CDN 拒绝(403)、超时,全都表现为播放器的**异步**报错。
-    // 老实现的 fail-fast(`fetchSongUrl` 返回 null 就提前 return)随队列改造一起没了。
+    // 这是唯一的失败来源:地址解析搬到了本机 302 server,`setAudioSources` 只会拿到
+    // 本机地址,取不到真地址(404)/ CDN 拒绝(403)/ 超时全都表现为播放器的
+    // **异步**报错,setUrl 本身不会抛。
     _audio.errorStream.listen((e) {
       if (_currentIndex < 0) return;
       _emitLoadError('load failed: ${e.message} (${e.code})');
     });
 
-    // 7. likedSongIds 变化 → emit isCurrentSongLiked 给 wrapper 订阅,
-    //    同时重建 controls (锁屏 like 按钮 icon/label 实时更新)
-    //
-    // RxSet.stream 返回 Stream<Set<String>>,可以直接 .listen
-    // (跟 RxInt.stream、RxString.stream 一样的 API,
-    // 文档: https://pub.dev/documentation/get/latest)
+    // 7. likedSongIds 变化 → emit isCurrentSongLiked 给 wrapper,
+    //    同时重建 controls(锁屏 like 按钮 icon/label 实时更新)
     _likedSongIdsSub = _likedService.likedSongIds.stream.listen((_) {
       _emitCurrentSongLiked();
     });
@@ -387,13 +348,11 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   // ---- BaseAudioHandler API override ---------------------------------------------
 
-  /// 替换整个队列,并从 [startIndex] 开始播。
+  /// 替换整个队列,并从 [startIndex] 开始播。本方法只负责把 MediaItem 翻译成
+  /// AudioSource(见 [_buildSources]),队列 / 索引 / shuffle 全部交给 just_audio。
   ///
-  /// 走 just_audio 的 `setAudioSources` —— 队列 / 索引 / shuffle 全部交给它,
-  /// 本方法只负责把 MediaItem 翻译成 AudioSource(见 [_buildSources])。
-  ///
-  /// 注意 [startIndex] 会被 clamp;降级路径下(取不到真地址的项被剔除)也会跟着
-  /// 左移,保证"要播的还是同一首"。
+  /// [startIndex] 会被 clamp;降级路径下(取不到真地址的项被剔除)也会跟着左移,
+  /// 保证"要播的还是同一首"。
   Future<void> setQueue(List<MediaItem> newQueue, {int startIndex = 0}) async {
     if (newQueue.isEmpty) {
       await _audio.stop();
@@ -437,7 +396,7 @@ class AudioPlayerHandler extends BaseAudioHandler
   Future<void> skipToQueueItem(int index) async {
     final items = _items;
     if (index < 0 || index >= items.length) return;
-    // 从 0 开始播这一首(不沿用上一首的 position),语义跟老实现 _playAt 一样
+    // 从 0 开始播这一首,不沿用上一首的 position
     await _seekToIndex(index);
   }
 
@@ -458,10 +417,7 @@ class AudioPlayerHandler extends BaseAudioHandler
     await _seekToIndex(prev);
   }
 
-  /// 跳到队列第 [index] 首并从头播。
-  ///
-  /// [_playAt] 时代的统一入口:seek 到 0,若当前没在播就起播
-  /// (老实现里是 `_playAt` 末尾的 `await _audio.play()`)。
+  /// 跳到队列第 [index] 首从头播;当前没在播就起播。
   Future<void> _seekToIndex(int index) async {
     final items = _items;
     if (index < 0 || index >= items.length) return;
@@ -478,9 +434,9 @@ class AudioPlayerHandler extends BaseAudioHandler
     // 排列要先摘掉这一项,再交给 just_audio 删除(删完索引会整体前移)
     _adjustShuffleAfterRemove(index);
 
-    // just_audio 内部会自己维护自己的 shuffle 顺序(ConcatenatingAudioSource
-    // .removeAt 调 _shuffleOrder.removeRange),不过我们没让它洗牌,真正在用的
-    // 是上面这行 [_shuffleOrder];删歌"不重洗"的语义靠 [_adjustShuffleAfterRemove]。
+    // just_audio 内部也会维护一份 shuffle 顺序(ConcatenatingAudioSource.removeAt
+    // 调 _shuffleOrder.removeRange),但没让它洗牌,真正在用的是上面这行;
+    // 删歌"不重洗"的语义靠 [_adjustShuffleAfterRemove]。
     await _audio.removeAudioSourceAt(index);
     // 等长替换/增删都会让长度判变失效或漏判,强制下一条通知重发 queue
     _invalidateSequenceCache();
@@ -511,13 +467,9 @@ class AudioPlayerHandler extends BaseAudioHandler
     );
   }
 
-  /// 单曲 append 到队列末尾(不打断当前播放)。
-  ///
-  /// **不调 seek/播放**:addQueueItem 的语义是"队列加一首",不是"跳到这首"
-  /// —— 跟 [skipToQueueItem] 区分清楚。
-  ///
-  /// queue / mediaItem 由 sequenceStateStream 自动推给 wrapper;shuffle 排列
-  /// 这里自己接在末尾(不重洗,否则"加一首歌"会打乱正在听的顺序)。
+  /// 单曲 append 到队列末尾。**不调 seek / 播放** —— addQueueItem 的语义是
+  /// "队列加一首",不是"跳到这首"(跟 [skipToQueueItem] 区分)。
+  /// shuffle 排列这里自己接在末尾,不重洗(否则加一首会打乱正在听的顺序)。
   @override
   Future<void> addQueueItem(MediaItem item) async {
     final (source, _) = await _buildSources([item], 0);
@@ -568,9 +520,6 @@ class AudioPlayerHandler extends BaseAudioHandler
     return null;
   }
 
-  // (refreshIsLiked 已删 — 现在通过 currentSongLiked stream 推送给 wrapper,
-  //  上层不需要再调一个公开方法;liked 变化全在 handler 内部处理)
-
   // ---- 播放顺序控制 -------------------------------------------------------------
 
   Future<void> setPlayOrder(PlayOrder order) async {
@@ -589,16 +538,14 @@ class AudioPlayerHandler extends BaseAudioHandler
   /// | shuffle      | all      | 随机排列      |
   /// | repeatOne    | one      | 空            |
   ///
-  /// **sequential 为什么是 all 而不是 off**:老实现的 `_neighbor` 在 sequential 下
-  /// 是 `(_currentIndex ± 1 + n) % n`,也就是**头尾循环**(列表循环,网易云/QQ 音乐
-  /// 的默认行为)。映射成 LoopMode.off 会变成"播完最后一首就停" —— 那是行为变更。
+  /// **sequential 为什么是 all 而不是 off**:本 App 的 sequential 是**头尾循环**
+  /// (列表循环,网易云 / QQ 音乐的默认行为),映射成 off 会变成"播完最后一首就停"。
   /// just_audio 的 `_getRelativeIndex` 在 LoopMode.all 下越界才做 `% n`,正好对上。
   ///
-  /// repeatOne 下我们自己的 [peekNeighbor] 也返回当前自己,跟老实现一致。
-  /// (注意:just_audio 自己的 `nextIndex` 在 LoopMode.one 下也是 currentIndex,
-  ///  但我们在 [skipToNext] 里不走 seekToNext,理由见 [_shuffleOrder] 的注释。)
+  /// [skipToNext] 不走 `seekToNext`(它按 just_audio 的恒等序算),理由见
+  /// [_shuffleOrder]。
   ///
-  /// ⚠️ **绝不能调 `setShuffleModeEnabled`** —— 见 [_shuffleOrder] 的注释。
+  /// ⚠️ **绝不能调 `setShuffleModeEnabled`** —— 见 [_shuffleOrder]。
   Future<void> _applyPlayOrder(PlayOrder order) async {
     await _audio.setLoopMode(
       order == PlayOrder.repeatOne ? LoopMode.one : LoopMode.all,

@@ -89,13 +89,9 @@ class LyricsController extends GetxController {
     await refreshCurrent();
   }
 
-  /// snapshot 变化 → diff 出 currentSong / position 的字段级变化
-  ///
-  /// - currentSong 变 → 拉新歌词(触发 _onCurrentSongChanged)
-  /// - position 变 → 推送给 flutter_lyric 做高亮 + 自动滚动
-  /// - 同首歌同个 position 不重复触发(GetX snapshot.copyWith 每次都 new 对象,
-  ///   stream 会 fire 一次,但内部 diff 让 lyric setProgress 是幂等操作,
-  ///   多 fire 几次没问题;真正重的"fetch lyric"用 _fetchingSongId 防抖)
+  /// currentSong 变 → 拉新歌词;position 变 → 推给 flutter_lyric 做高亮 + 滚动。
+  /// snapshot.copyWith 每次都 new 对象,stream 会多 fire 几次,但 setProgress 幂等,
+  /// 真正重的 fetch 由 _fetchingSongId 防抖。
   void _onSnapshot(PlaybackSnapshot s) {
     final song = s.currentSong;
     if (song?.id != _lastSong?.id) {
@@ -126,33 +122,27 @@ class LyricsController extends GetxController {
     await _loadLyricFor(song.id);
   }
 
-  /// 用 lrc 的行时间覆写 yrc 的行时间(按**整行文本**匹配)
+  /// 按**整行文本**匹配,用 lrc 的行时间覆写 yrc 的行时间。
   ///
   /// ## 为什么需要对轴
   ///
-  /// yrc(逐字歌词)的时间是自动打轴出来的,跟 lrc(整行歌词)对不上。以 lyric.json
-  /// 那首歌为例,50 行里逐行偏移在 -1440ms ~ +6670ms 之间飘,同一句副歌前后能差
-  /// 好几秒。直接用 yrc 会有两个后果:
-  ///   - 行高亮跟人声对不上
-  ///   - 翻译永远出不来 —— flutter_lyric 配翻译时走
-  ///     `LrcParser.findTranslation(ms, tolerance: 10)`,而 tlyric / romalrc 都是
-  ///     lrc 时间轴,10ms 容差下差几百毫秒必然查不到
-  ///
-  /// 所以以**文本**为准(lrc 的行文本就是这一行唱的内容)、以**时间**为准取 lrc,
-  /// 拿 lrc 的行时间去盖 yrc 的行时间。
+  /// yrc(逐字)的时间是自动打轴出来的,跟 lrc 对不上:实测 50 行里逐行偏移在
+  /// -1440ms ~ +6670ms 之间飘。直接用 yrc 会让行高亮跟人声对不上,而且**翻译永远
+  /// 出不来** —— flutter_lyric 配翻译走 `LrcParser.findTranslation(ms, tolerance: 10)`,
+  /// 而 tlyric / romalrc 都是 lrc 时间轴,10ms 容差下差几百毫秒必然查不到。
+  /// 所以以文本对齐、以 lrc 的时间为准。
   ///
   /// ## 关键取舍
   ///
-  /// - **逐字时间同步平移**: 只换行头会让逐字高亮(line 内按 word.start/word.end
-  ///   画)和行高亮各走各的时间轴,反而更乱。delta 整体平移行内所有 `(start,dur,0)`
-  ///   逐字时间,行内相对节奏保持不变。
-  /// - **按出现顺序消费**: 副歌重复的同一句在 lrc 里有多个时间点,一一对应消费,
-  ///   不会串台;对齐不了就保持 yrc 原值。
-  /// - **只改时间,不改内容**: 没匹配上的行原样输出(逐字歌词是主内容,宁可少改
+  /// - **逐字时间同步平移**:只换行头会让逐字高亮和行高亮各走各的轴,反而更乱;
+  ///   delta 整体平移行内所有 `(start,dur,0)`,行内相对节奏不变。
+  /// - **按出现顺序消费**:副歌重复的同一句在 lrc 里有多个时间点,一一对应消费,
+  ///   不会串台;对不齐就保持 yrc 原值。
+  /// - **只改时间,不改内容**:没匹配上的行原样输出(逐字歌词是主内容,宁可少改
   ///   也别丢字),元信息行 `{"t":0,"c":[...]}` 也按整行文本一起对。
   ///
-  /// 参数 [yrc] 是带 yrc 字段的完整响应,[lrc] 只用到它的 lrc 字段(缺省回退到
-  /// [yrc] 自带的 lrc)。返回一个合并后的新 [Lyrics],yrc 是对齐后的文本。
+  /// [lrc] 只用到它的 lrc 字段(缺省回退到 [yrc] 自带的 lrc)。返回合并后的新
+  /// [Lyrics],yrc 是对齐后的文本。
   Lyrics alignLyrics(Lyrics yrc, Lyrics lrc) {
     final yrcText = yrc.yrc;
     final lrcText = lrc.lrc ?? yrc.lrc;

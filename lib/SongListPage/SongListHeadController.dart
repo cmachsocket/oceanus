@@ -11,13 +11,11 @@ import '../services/repositories/PlaylistRepository.dart';
 
 /// 歌单 / 专辑 / 艺人详情页 head 行的公共基类。
 ///
-/// **职责**:顶部 head 行所有公共状态与命令 —— 标题、封面、描述、
+/// **职责**:顶部 head 行的公共状态与命令 —— 标题、封面、描述、
 /// `playlistSource`(决定按钮)、加载/错误状态,以及播放 / 收藏 / 删除按钮。
 ///
-/// **不存**:歌曲列表 —— 那归 [SongListBodyController] 管。
-///
-/// head / body 是 sibling controller,各存一份 `playlistId`(同一资源),
-/// head 跟 body 完全独立,可以分别销毁 / 重建。
+/// **不存**:歌曲列表 —— 那归 [SongListBodyController] 管。head / body 是
+/// sibling controller,各存一份 `playlistId`(同一资源),可以分别销毁 / 重建。
 ///
 /// 三个子类按资源类型决定元信息加载路径 + 收藏语义:
 ///   - [SongListHeadController] 歌单(created / collected / pure)
@@ -30,25 +28,19 @@ abstract class SongListHeadControllerBase extends GetxController {
     this.onPlayAll,
   });
 
-  /// 路由传进来的资源 ID
   final String playlistId;
 
-  /// 资源来源(专辑 / 歌单 / 艺人等),替代旧的 'album-' 字符串前缀判断
+  /// 资源来源(专辑 / 歌单 / 艺人等)
   final PlaylistSource source;
 
-  /// 收藏 / 取消订阅走全局 [LikedController]。子类通过 [likedType] 指定
-  /// 自己对应的 [LikedType] 分桶。
   final LikedController _likedService = Get.find<LikedController>();
 
   // ---- head 行的 UI 状态 -----------------------------------------------------
 
-  /// 标题(从对应 repository 取)
   final RxnString title = RxnString();
 
-  /// 封面
   final RxnString coverUrl = RxnString();
 
-  /// 描述
   final RxnString description = RxnString();
 
   /// 资源来源(详情页唯一真相源)。构造时按 [source] 预填,加载后可被
@@ -58,7 +50,6 @@ abstract class SongListHeadControllerBase extends GetxController {
   /// head 行整体加载状态(只反映元信息加载 —— 不反映歌曲列表加载)。
   final RxBool isLoading = false.obs;
 
-  /// head 行加载失败信息。
   final RxnString errorMessage = RxnString();
 
   /// `ready` future:head 元信息拉完。外部可以 `await c.ready` 等首屏数据。
@@ -81,7 +72,7 @@ abstract class SongListHeadControllerBase extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    // 同步预填:构造时传入的 source 立即写入,等后端响应后再覆盖
+    // 同步预填 source(后端响应不会反向覆盖它,见 SongListHeadController.loadMeta)
     playlistSource.value = source;
     ready = _runLoad();
   }
@@ -132,12 +123,9 @@ abstract class SongListHeadControllerBase extends GetxController {
   }
 }
 
-/// 歌单详情页 head 行 controller。
-///
-/// 负责 `created` / `collected` / `pure` 三种歌单分支:
-/// - 元信息走 [PlaylistRepository.fetchMeta]
-/// - 收藏走 [LikedType.playlist]
-/// - 自建歌单(created)可删除
+/// 歌单详情页 head 行 controller:`created` / `collected` / `pure` 三种歌单分支,
+/// 元信息走 [PlaylistRepository.fetchMeta],收藏走 [LikedType.playlist],
+/// 仅自建歌单(created)可删除。
 class SongListHeadController extends SongListHeadControllerBase {
   SongListHeadController({
     required super.playlistId,
@@ -178,7 +166,6 @@ class SongListHeadController extends SongListHeadControllerBase {
     if (Get.isRegistered<LibraryController>()) {
       await Get.find<LibraryController>().loadPlaylists();
     }
-    // pop 回上一页
     final ctx = Get.context;
     if (ctx != null && Navigator.of(ctx).canPop()) {
       Navigator.of(ctx).pop();
@@ -186,12 +173,8 @@ class SongListHeadController extends SongListHeadControllerBase {
   }
 }
 
-/// 专辑详情页 head 行 controller。
-///
-/// 负责 `album` 分支:
-/// - 元信息走 [AlbumRepository.fetch](忽略返回的 songs)
-/// - 收藏走 [LikedType.album]
-/// - 不可删除
+/// 专辑详情页 head 行 controller:元信息走 [AlbumRepository.fetch](忽略返回的
+/// songs),收藏走 [LikedType.album],不可删除。
 class AlbumHeadController extends SongListHeadControllerBase {
   AlbumHeadController({
     required super.playlistId,
@@ -221,15 +204,11 @@ class AlbumHeadController extends SongListHeadControllerBase {
   }
 }
 
-/// 艺人详情页 head 行 controller。
+/// 艺人详情页 head 行 controller:元信息走 [ArtistRepository.fetchArtist],
+/// 收藏(关注)走 [LikedType.artist],不可删除。
 ///
-/// 负责 `artist` 分支:
-/// - 元信息走 [ArtistRepository.fetchArtist]
-/// - 收藏(关注)走 [LikedType.artist]
-/// - 不可删除
-///
-/// 注意:艺人详情页目前用 [ArtistController] 而不是本类。本类作为
-/// `SongListHeadControllerBase` 三子类之一保留,未来若要统一 head 骨架可直接替换。
+/// 注意:艺人详情页目前走 [ArtistController],本类仅在 source == artist 时
+/// 由 SongListDetailBinding 创建。
 class ArtistHeadController extends SongListHeadControllerBase {
   ArtistHeadController({
     required super.playlistId,

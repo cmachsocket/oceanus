@@ -40,7 +40,7 @@ class ThemeController extends GetxController {
     if (mode.value == m) return;
     mode.value = m;
     await _box.write(_modeKey, m.name);
-    Get.changeThemeMode(m); // 切换 theme / darkTheme 的选择
+    Get.changeThemeMode(m);
   }
 
   // ── 强调色 ─────────────────────────────────────────────
@@ -48,7 +48,7 @@ class ThemeController extends GetxController {
   /// 用户确认选色：持久化 + 换肤
   Future<void> setAccent(Color c) async {
     accent.value = c;
-    await _box.write(_accentKey, c.toARGB32()); // Flutter <3.27 用 c.value
+    await _box.write(_accentKey, c.toARGB32()); // Flutter <3.27 这里要用 c.value
   }
 
   /// 对话框实时预览：只改内存，不写 storage
@@ -89,7 +89,7 @@ class ThemeController extends GetxController {
           showRecentColors: true,
           onColorChanged: (Color color) {
             picked = color;
-            setAccentPreview(color); // 实时预览
+            setAccentPreview(color);
           },
         ).showPickerDialog(
           Get.context!,
@@ -101,9 +101,9 @@ class ThemeController extends GetxController {
         );
 
     if (confirmed) {
-      await setAccent(picked); // 确定：持久化
+      await setAccent(picked); // 确定 → 持久化
     } else {
-      setAccentPreview(original); // 取消：回滚
+      setAccentPreview(original); // 取消 → 回滚
     }
   }
 }

@@ -20,13 +20,11 @@ enum PageIndex { home, search, library, settings }
 class AppShell extends StatelessWidget {
   const AppShell({super.key});
 
-  /// AppShell 这一层 Navigator 在 Get 中的 id,跟 Settings 的内嵌 id 区分
   static const int maxPageIndex = 4;
   static const int protraitFlex = 6;
   static const int landscapeFlex = 5;
   static const int bottomPlayerFlex = 1;
 
-  /// 按 index 返回 tab 内容
   static Widget _content(PageIndex i) {
     switch (i) {
       case PageIndex.home:
@@ -40,9 +38,9 @@ class AppShell extends StatelessWidget {
     }
   }
 
-  /// 跟 _content 对应:每个 tab 是否需要 binding。
-  /// library tab 切到时才需要 LibraryController,所以用 Get.to(binding:) 按需绑定。
-  /// 启动前已注入的(AppShellController / ThemeController / PlayerController)走 global,不在这里绑。
+  /// 跟 _content 对应:每个 tab 是否需要 binding。library tab 切到时才需要
+  /// LibraryController,所以用 Get.to(binding:) 按需绑定;启动前已注入的
+  /// (AppShellController / ThemeController / PlayerController)走 global,不在这里绑。
   static Bindings? _bindingForTab(PageIndex i) {
     switch (i) {
       case PageIndex.home:
@@ -102,14 +100,10 @@ class AppShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tab = Get.find<AppShellController>();
-    // 2026-08-25: 用 SafeArea 包 body, Flutter UI 不越过状态栏 / 底部
-    // navigation bar。bottomNavigationBar 本身 Scaffold 会自动避开底部, 这里
-    // 跟之前的 MainActivity.setDecorFitsSystemWindows(true) 一起确保非全屏:
-    // - setDecorFitsSystemWindows: Android 不强制 edge-to-edge, 状态栏/导航栏
-    //   保留系统位置
-    // - SafeArea: Flutter UI 进一步避开状态栏/导航栏的高度, 避免画到系统栏下
-    // top/bottom true (BottomNavigationBar 本身 Scaffold 避开 bottom, 这里
-    // bottom=true 是冗余防御, 设了不出问题)。
+    // SafeArea 包 body,Flutter UI 不越过状态栏 / 底部导航栏:与 Android 侧
+    // MainActivity.setDecorFitsSystemWindows(true) 配合保证非全屏,状态栏/
+    // 导航栏保留系统位置(bottomNavigationBar 由 Scaffold 自动避开,bottom=true
+    // 是冗余防御)。
     return MediaQuery(
       data: MediaQuery.of(context).copyWith(viewInsets: EdgeInsets.zero),
       child: SafeArea(
@@ -125,7 +119,6 @@ class AppShell extends StatelessWidget {
               onTap: (j) {
                 if (j == i) return;
                 tab.change(j);
-                // 用 GetX 的导航 API 推到 shell 自己的 navigator
                 final toThePage = PageIndex.values[j.clamp(0, tailOfThePage)];
                 Get.offAll(
                   //清空 navigator 栈,避免积压

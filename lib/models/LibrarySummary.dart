@@ -1,8 +1,8 @@
 /// 首页 / 我的页 展示用的轻量摘要模型。
 
-/// 歌单来源。`/user/playlist` 用 bool `subscribed` 区分自建 vs 收藏,但调用点写
-/// `if (p.subscribed)` 必须翻注释才知道 true=收藏;换成 enum 后语义自解释,
-/// switch 有 exhaustiveness 检查,真值转换集中在 fromNeteaseJson。
+/// 歌单来源。`/user/playlist` 用 bool `subscribed` 区分自建 vs 收藏,
+/// 换成 enum 后语义自解释,switch 有 exhaustiveness 检查,真值转换集中在
+/// fromNeteaseJson。
 enum PlaylistSource {
   created, // 我创建的(subscribed == false)
   collected, // 我收藏/订阅的(subscribed == true)

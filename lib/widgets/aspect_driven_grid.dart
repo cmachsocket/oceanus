@@ -1,5 +1,3 @@
-// lib/widgets/aspect_driven_grid.dart
-//
 // 一张"纯比例驱动"的网格。零硬编码像素。
 //   - 列数 = 容器宽高比决定
 //   - 间距 = 列宽 × gapRatio
@@ -13,9 +11,8 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 /// 三个 grid widget 的默认参数集中放这里
 ///
 /// - 三个 constructor (AspectDrivenGrid / SliverAspectDrivenGrid / MasonryAspectDrivenGrid)
-///   以前各自重写这些默认值，改一处忘改另两处会造成不一致。
-/// - 现在抽到这里：改默认参数只改一处。
-/// - `private` (下划线开头) 仅本文件内部用，外部不应该手动改。
+///   共用这套默认值,避免改一处忘改另两处造成不一致。
+/// - `private` (下划线开头) 仅本文件内部用,外部不应该手动改。
 class _GridDefaults {
   /// 基准宽高比下的列数（默认 2）
   static const int baseColumns = 2;
@@ -54,20 +51,11 @@ class AspectDrivenGrid extends StatelessWidget {
   final int itemCount;
   final IndexedWidgetBuilder itemBuilder;
 
-  /// 基准宽高比下的列数（默认 2）
+  /// 参数语义与默认值见 [_GridDefaults]
   final int baseColumns;
-
-  /// 基准宽高比（默认 1.0 = 1:1）
   final double baseRatio;
-
-  /// 间距 = 列宽 × 此比例（0.02~0.06 区间）
   final double gapRatio;
-
-  /// item 自身的宽/高比（直接传给 SliverGridDelegate.childAspectRatio）。
-  /// 默认 1.0 = 永远方。
   final double childAspectRatio;
-
-  /// 列数限位
   final int minColumns;
   final int maxColumns;
 
@@ -127,18 +115,14 @@ class SliverAspectDrivenGrid extends StatelessWidget {
   final int itemCount;
   final IndexedWidgetBuilder itemBuilder;
 
-  /// 基准宽高比下的列数（默认 2）
+  /// 基准宽高比下的列数;基准宽高比;间距 = 列宽 × gapRatio;
+  /// item 自身宽/高比(见 [_GridDefaults])。全部是相对量,不是像素。
   final int baseColumns;
-
-  /// 基准宽高比（默认 1.0 = 1:1）
   final double baseRatio;
-
-  /// 间距 = 列宽 × 此比例
   final double gapRatio;
-
-  /// item 自身的宽/高比。
   final double childAspectRatio;
 
+  /// 列数限位
   final int minColumns;
   final int maxColumns;
 
@@ -146,7 +130,7 @@ class SliverAspectDrivenGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return SliverLayoutBuilder(
       builder: (context, c) {
-        // 可视宽高 = viewport 宽 × viewport 高（始终有界）
+        // 可视宽高 = viewport 宽 × viewport 高(始终有界)
         final ratio = c.crossAxisExtent / c.viewportMainAxisExtent;
         final cols = (baseColumns * (ratio / baseRatio))
             .clamp(minColumns, maxColumns)

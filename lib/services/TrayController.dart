@@ -83,7 +83,9 @@ class TrayController extends GetxController with WindowListener {
     if (icon == null) {
       // GNOME 没装 AppIndicator 扩展时会这样,跳过托盘,应用主体照常工作。
       // ignore: avoid_print
-      print('[TrayController] TrayIcon.create() 返回 null (Linux 可能需要 AppIndicator 扩展)');
+      print(
+        '[TrayController] TrayIcon.create() 返回 null (Linux 可能需要 AppIndicator 扩展)',
+      );
       return;
     }
     _tray = icon;
@@ -136,7 +138,7 @@ class TrayController extends GetxController with WindowListener {
   void _buildMenuItems() {
     final menu = _menu!;
 
-    // 顶部:当前歌曲 (disabled,不可点)
+    // 顶部:当前歌曲(disabled)
     final current = MenuItem.createWithLabelAndType(
       '未在播放',
       MenuItemType.normal,
@@ -162,7 +164,6 @@ class TrayController extends GetxController with WindowListener {
 
     menu.addSeparator();
 
-    // 上一首
     final prev = MenuItem.createWithLabelAndType('上一首', MenuItemType.normal);
     prev?.addListener((event) {
       if (event is MenuItemClickedEvent) {
@@ -172,7 +173,6 @@ class TrayController extends GetxController with WindowListener {
     });
     if (prev != null) menu.addItem(prev);
 
-    // 播放/暂停,label 由 _onSnapshot 改
     final play = MenuItem.createWithLabelAndType('播放', MenuItemType.normal);
     play?.addListener((event) {
       if (event is MenuItemClickedEvent) {
@@ -188,7 +188,6 @@ class TrayController extends GetxController with WindowListener {
     _togglePlayItem = play;
     if (play != null) menu.addItem(play);
 
-    // 下一首
     final next = MenuItem.createWithLabelAndType('下一首', MenuItemType.normal);
     next?.addListener((event) {
       if (event is MenuItemClickedEvent) {
@@ -198,9 +197,8 @@ class TrayController extends GetxController with WindowListener {
     });
     if (next != null) menu.addItem(next);
 
-    // 喜欢 / 取消喜欢,label 由 _onSnapshot 改
     final like = MenuItem.createWithLabelAndType('喜欢', MenuItemType.normal);
-    like?.isEnabled = false; // 没有当前歌曲时灰掉
+    like?.isEnabled = false;
     like?.addListener((event) {
       if (event is MenuItemClickedEvent) {
         final song = _audio.snapshot.value.currentSong;
@@ -214,7 +212,6 @@ class TrayController extends GetxController with WindowListener {
 
     menu.addSeparator();
 
-    // 退出
     final exit = MenuItem.createWithLabelAndType('退出', MenuItemType.normal);
     exit?.addListener((event) {
       if (event is MenuItemClickedEvent) {
@@ -229,7 +226,6 @@ class TrayController extends GetxController with WindowListener {
 
   void _onSnapshot(PlaybackSnapshot s) {
     final song = s.currentSong;
-    // 顶部:"歌名 - 艺术家",过长截断
     if (_currentSongItem != null) {
       if (song == null) {
         _currentSongItem!.label = '未在播放';
@@ -237,17 +233,16 @@ class TrayController extends GetxController with WindowListener {
         final title = song.title.trim().isEmpty ? '未知曲目' : song.title.trim();
         final artist = song.artist.trim();
         final combined = artist.isEmpty ? title : '$title - $artist';
-        _currentSongItem!.label =
-            combined.length > 40 ? '${combined.substring(0, 40)}…' : combined;
+        _currentSongItem!.label = combined.length > 40
+            ? '${combined.substring(0, 40)}…'
+            : combined;
       }
     }
 
-    // 播放-暂停
     if (_togglePlayItem != null) {
       _togglePlayItem!.label = s.isPlaying ? '暂停' : '播放';
     }
 
-    // 喜欢 / 取消喜欢 (没当前歌曲时灰掉)
     if (_toggleLikeItem != null) {
       if (song == null) {
         _toggleLikeItem!.label = '喜欢';

@@ -12,13 +12,8 @@ import '../models/Default.dart';
 /// (RxList&lt;Song&gt;)。wrapper 是真相源,handler 的 `_onQueue` 流回推时 UI 自动 rebuild。
 ///
 /// **不调后端**:跟 [SongListBody] 走的"binding + 后端拉歌"路径完全不同
-/// —— 这里是已经存在的 wrapper.playlist,直接渲染即可。
-///
-/// **为什么不用 [SongListBody]**:
-/// `SongListBody` 设计为绑定 [SongListBodyController] + 调后端(或自定义钩子),
-/// 而播放队列数据已经在 `AudioPlayerService.playlist`,硬塞进 SongListBody
-/// 会让 controller 失去"唯一真相源"的清晰边界 —— 谁负责维护 songs?
-/// `AudioPlayerService` 还是 `SongListBodyController`?答案是前者。
+/// —— 这里是已经存在的 wrapper.playlist,直接渲染即可(所以不复用
+/// SongListBody:那要绑 [SongListBodyController],会让 songs 归谁维护变模糊)。
 ///
 /// **架构边界**:
 /// - AudioPlayerService.playlist: 当前播放队列(handler 维护)
@@ -41,7 +36,6 @@ class PlayListPage extends StatelessWidget {
         title: const Text('播放列表'),
       ),
       body: Obx(() {
-        // 整个播放队列:每次 handler 的 _onQueue emit 都会触发 rebuild
         final List<Song> playlist = controller.playlist.toList(growable: false);
         final int currentIndex = controller.currentIndex.value;
 

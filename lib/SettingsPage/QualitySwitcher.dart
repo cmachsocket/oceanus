@@ -2,12 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'SettingsController.dart';
 
-/// SettingsPage 里的音质选择下拉框。
-///
-/// 选项列表跟 [Quality] 枚举 1:1 对应 (顺序保持跟文档里 9 档的展示顺序一致:
-/// 标准 → 较高 → 极高 → 无损 → Hi-Res → 高清臻音 → 杜比全景声 → 臻音全景声
-/// → 超清母带 → 沉浸环绕声)。`onChanged` 走 [SettingsController.set] 同步
-/// 写盘, 下一次 AudioPlayerHandler._playAt 自动读到新 quality。
+/// SettingsPage 里的音质选择下拉框(选项与 [Quality] 枚举 1:1,顺序保持
+/// 标准 → 较高 → 极高 → 无损 → Hi-Res)。`onChanged` 走 [SettingsController.set]
+/// 同步写盘, 下一次 AudioPlayerHandler._playAt 自动读到新 quality。
 ///
 /// 用户改了 quality 不会自动重新拉当前歌的 URL —— 下一首 / 自然播完触发
 /// _playAt 时才用新 level。如果想"立刻生效", 需要上层 UI 调 wrapper 的

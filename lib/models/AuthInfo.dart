@@ -1,4 +1,3 @@
-// 认证信息
 class AuthInfo {
   AuthInfo({
     required this.cookie,

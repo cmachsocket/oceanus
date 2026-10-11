@@ -11,7 +11,7 @@ import 'repositories/LyricsRepository.dart';
 
 /// 本地 HTTP 服务 —— 暴露当前播放状态给外部 lyric 客户端
 ///
-/// 监听端口 `41830`,返回 `/local-asset/player` GET 端点。
+/// 监听端口 `41831`,返回 `/local-asset/player` GET 端点。
 /// 响应 schema 跟 YesPlayMusic 桌面 lyric 客户端约定一致(见 `templete.json`):
 ///
 /// ```json
@@ -49,7 +49,6 @@ class LyricsServerService extends GetxService {
     if (_server != null) return;
     final server = await HttpServer.bind(InternetAddress.anyIPv4, defaultPort);
     _server = server;
-    // listen 一旦挂上 server 就开始 accept,不需要再 await
     server.listen(_handleRequest);
   }
 
@@ -100,7 +99,6 @@ class LyricsServerService extends GetxService {
     final body = <String, Object?>{
       'success': true,
       'data': <String, Object?>{
-        // 字段顺序按 YesPlayMusic client 期望从顶到下排列(让客户端提前 fail-fast)
         'progress': snap.position.inMilliseconds / 1000.0,
         'playing': snap.isPlaying,
         'volume': 1.0, // wrapper 不暴露音量,客户端不用,固定 1.0
@@ -145,13 +143,8 @@ class LyricsServerService extends GetxService {
   // ---- mapping helpers ----
 
   /// 把本地 `Song` 转 YesPlayMusic client 期望的 currentTrack 字段。
-  /// 字段命名跟网易云官方 schema 对齐(`name` / `ar` / `al` / `dt` / `id`),
-  /// 缺失字段给合理默认值(0 / '' / [] / null),不要编造数据。
-  ///
-  /// **只填 JS 客户端实际读的字段**(`progress` / `lrc` / `tlyric` / `playing`
-  /// 不在 currentTrack 里,各自独立)。currentTrack 字段留给 YesPlayMusic 桌面
-  /// 客户端自己用,本项目客户端不消费 —— 故采用"有则填无则删"原则,只映射
-  /// `Song` 已有的字段,其他不构造。
+  /// 字段命名对齐网易云官方 schema(`name` / `ar` / `al` / `dt` / `id`),
+  /// 采用"有则填无则删"原则:只映射 `Song` 已有的字段,缺失的不编造。
   static Map<String, Object?> _mapCurrentTrack(Song? song) {
     if (song == null || song.id.isEmpty) {
       return <String, Object?>{};
@@ -188,15 +181,13 @@ class LyricsServerService extends GetxService {
     }
   }
 
+  /// 只保留从第一个 `[mm:ss.SSS]` 时间戳开始的部分;找不到时间戳返回空串。
   static String _removeBeforeTimestamp(String text) {
-    // 匹配 [数字:数字.数字]，例如 [00:42.492]
     final reg = RegExp(r'\[\d+:\d+\.\d+\]');
     final match = reg.firstMatch(text);
 
-    // 没找到就原样返回，也可以改成 return ''
     if (match == null) return '';
 
-    // 从时间戳开始保留
     return text.substring(match.start);
   }
 }

@@ -8,15 +8,14 @@ import 'repositories/LikedRepository.dart';
 /// 按 type 分桶存。UI / controller 调 toggle(id, type) / isLiked(id, type)。
 enum LikedType { song, album, artist, playlist }
 
-/// 全局"我喜欢"服务 —— 合并之前的 LikedSongs/Albums/Artists/Playlists 4 个 service.
+/// 全局"我喜欢"服务 —— 歌曲 / 专辑 / 艺人 / 歌单四类收藏统一收口到这里。
 ///
 /// 设计要点:
-///   - 单一 service, 4 个 RxSet 分桶 (likedSongIds / likedAlbumIds / ...)
+///   - 单一 service,4 个 RxSet 分桶 (likedSongIds / likedAlbumIds / ...)
 ///   - API 调用走 [LikedRepository] (按类型分方法,因为后端 API 各异)
-///   - **不持久化**: 之前 4 个 service 各自写 GetStorage key (liked_songs_v1 etc.),
-///     现在合并后不再写本地, 完全依赖 loadAll 从后端拉取
-///     (之前的旧 key 保留在 GetStorage 里但永远不会再被读,等下次用户卸载/清缓存自然消失)
-///   - toggle 走乐观更新 + 失败回滚 + snackbar, 跟之前 LikedCollectionService 基类一致
+///   - **不持久化**:完全依赖 loadAll 从后端拉取;历史遗留的
+///     GetStorage key (liked_songs_v1 等) 不再被读取
+///   - toggle 走乐观更新 + 失败回滚 + snackbar
 ///   - artist 的 syncSingle 也收口到这里 (其他类型不需要单点同步)
 class LikedController extends GetxController {
   final LikedRepository _repo = Get.find<LikedRepository>();
@@ -87,12 +86,11 @@ class LikedController extends GetxController {
   // ---- 全量拉取 ---------------------------------------------------------------
 
   /// 登录后一次性拉所有类型的 liked id (歌曲 / 专辑 / 艺人 / 歌单)
-  /// 内部 4 个 API 并发 (拉失败的不阻塞,跟之前各 service loadFromServer 的"静默"行为一致)
+  /// 4 个 API 并发,拉失败的类型不阻塞其他类型(静默跳过)。
   Future<void> loadAll() async {
     if (!_auth.loggedIn) return;
     final uid = _auth.currentUid.toString();
 
-    // songs + albums + artists + playlists 4 个并发拉
     final results = await Future.wait([
       _repo.fetchLikedSongIds(uid),
       _repo.fetchLikedAlbumIds(),
@@ -113,9 +111,6 @@ class LikedController extends GetxController {
 
   // ---- toggle (乐观更新 + 失败回滚 + snackbar) -------------------------------
 
-  /// toggle 收藏 (乐观更新 + 失败回滚 + snackbar)
-  ///
-  /// 对应类型的 RxSet 立刻 add/remove, 后端 API 失败时回滚并 snackbar 报错
   Future<void> toggle(String id, LikedType type) async {
     final bucket = _bucket(type);
     final wasLiked = bucket.contains(id);
@@ -133,8 +128,6 @@ class LikedController extends GetxController {
       } else {
         bucket.add(id);
       }
-      // 提示用户失败原因(原版只静默回滚,UI 看不出来)。
-      // Get.snackbar 在 kDebugMode + release 都打,production 也提示更友好。
       Get.snackbar(
         next ? '收藏失败' : '取消收藏失败',
         e.message,
@@ -172,10 +165,10 @@ class LikedController extends GetxController {
 
   // ---- artist 单点同步 --------------------------------------------------------
 
-  /// 同步单个艺人的关注状态 (跟之前的 LikedArtistsService.syncSingle 同语义)
+  /// 同步单个艺人的关注状态。
   ///
-  /// 业务: LibraryPage 关注艺人列表 card 首次 build 时调一次
-  /// (loadAll 拉 /artist/sublist 全量,单点 id 不在里面)
+  /// LibraryPage 关注艺人列表 card 首次 build 时调一次
+  /// (loadAll 只拉 /artist/sublist 全量,列表外的单点 id 不在里面)。
   Future<void> syncArtistLike(String artistId) async {
     final followed = await _repo.fetchFollowed(artistId);
     if (followed == null) return; // 静默

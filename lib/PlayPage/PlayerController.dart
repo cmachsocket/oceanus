@@ -10,12 +10,9 @@ enum CenterPage { cover, lyric }
 /// center 切页(纯 UI 状态)。不持有任何音频事实状态。
 ///
 /// **故意不 `permanent: true`**:跨路由 push/pop 时 GetX 会销毁重建,重建成本
-/// 极低(onInit 里 ever 立刻从 snapshot 镜像一次)。UI 看到的数据始终是
-/// wrapper 的实时值,用户无感。
-///
-/// 跟 LyricsController 的生命周期是独立的:那个要 permanent 是因为
-/// flutter_lyric 的 LyricController 持有高亮位置 / 已加载 lyric 这类 state,
-/// 本 controller 只是镜像,不需要。
+/// 极低(onInit 里 ever 立刻从 snapshot 镜像一次),UI 始终看到 wrapper 的实时值。
+/// (LyricsController 要 permanent 是因为 flutter_lyric 的 LyricController 持有
+/// 高亮位置 / 已加载 lyric 这类 state,本 controller 只是镜像。)
 class PlayerController extends GetxController {
   // region UI facade:从 wrapper 镜像过来(UI 端无感)
   final Rx<Duration> position = Duration.zero.obs;
@@ -23,14 +20,12 @@ class PlayerController extends GetxController {
   final Rx<Duration> buffered = Duration.zero.obs;
   final RxBool isPlaying = false.obs;
 
-  /// 当前播放的歌曲(null = 还没加载)
   final Rxn<Song> currentSong = Rxn<Song>();
 
   /// 镜像 snapshot.isCurrentSongLiked(handler 推流,本层不订阅 LikedController)
   final RxBool isLiked = false.obs;
   // endregion
 
-  /// 中央区域当前页
   final Rx<CenterPage> center = CenterPage.cover.obs;
 
   final AudioPlayerService _audio = Get.find<AudioPlayerService>();
@@ -85,7 +80,6 @@ class PlayerController extends GetxController {
   void seek(Duration p) => _audio.seek(p);
 
   void switchPage() {
-    // exhaustive: enum 加新 page 时编译器会报错,不会静默走错分支
     center.value = switch (center.value) {
       CenterPage.cover => CenterPage.lyric,
       CenterPage.lyric => CenterPage.cover,

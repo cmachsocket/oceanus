@@ -5,11 +5,11 @@ enum AlbumType { album, ep, single, compilation }
 
 extension AlbumTypeLabel on AlbumType {
   String get label => switch (this) {
-        AlbumType.album => '专辑',
-        AlbumType.ep => 'EP',
-        AlbumType.single => '单曲',
-        AlbumType.compilation => '合辑',
-      };
+    AlbumType.album => '专辑',
+    AlbumType.ep => 'EP',
+    AlbumType.single => '单曲',
+    AlbumType.compilation => '合辑',
+  };
 }
 
 class Album {
@@ -31,15 +31,8 @@ class Album {
     required this.type,
   });
 
-  /// 从网易云 /album 或 /artist/album 返回的 JSON 解析
-  ///
-  /// 主要字段:
-  /// - id, name
-  /// - artists: List<Map> 取第一个 name
-  /// - picUrl: 封面图 URL
-  /// - size: 曲目数
-  /// - publishTime: 发行时间(unix ms)
-  /// - type: 'Album' / 'Single' / 'EP' / 'Compilation'
+  /// 从网易云 /album 或 /artist/album 返回的 JSON 解析。
+  /// `artists` 取第一个 name;`type` 是 'Album' / 'Single' / 'EP' / 'Compilation'
   factory Album.fromNeteaseJson(Map<String, dynamic> json) {
     final artists = (json['artists'] as List?) ?? const [];
     final firstArtist = artists.isNotEmpty

@@ -9,9 +9,8 @@ import '../models/LibrarySummary.dart' show PlaylistSource;
 /// 歌曲列表里的"艺人 - 专辑"双链接文本
 ///
 /// - 艺人点击 → [ArtistDetail](artistId: song.artistId)
-/// - 专辑点击 → [SongListDetail](playlistId: 'album-${song.albumId}')
-///   (复用 SongListController 的 'album-' 前缀分支,把专辑当特殊 playlistId 处理,
-///   避免另起 [AlbumDetail] controller —— 这是 stub 阶段就在用的约定)
+/// - 专辑点击 → [SongListDetail](playlistId: song.albumId, source: PlaylistSource.album)
+///   —— 专辑复用歌单详情页的 head / body,不另起 controller
 /// - 任一 ID 缺失 → 对应链接降级为只读 Text(避免点开 "111" 占位)
 class LinkedDetailText extends StatelessWidget {
   final Song song;
@@ -94,7 +93,7 @@ class _ArtistLink extends StatelessWidget {
   }
 }
 
-/// 专辑链接:复用 SongListDetail,playlistId 走 'album-{albumId}' 前缀
+/// 专辑链接:复用 SongListDetail,source 传 PlaylistSource.album
 class _AlbumLink extends StatelessWidget {
   const _AlbumLink({
     required this.song,

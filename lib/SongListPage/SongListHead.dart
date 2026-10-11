@@ -7,20 +7,14 @@ import '../widgets/netease_image.dart';
 import 'SongListBodyController.dart';
 import 'SongListHeadController.dart';
 
-/// 详情页 head 行 widget —— 通过 [controllerTag] 找到对应 [SongListHeadControllerBase]。
-///
-/// **真正的视觉由 controller 的具体类型决定**(在 binding 时选定):
-/// - `SongListHeadController` (歌单: created / collected / pure) → [SongListHead]
+/// 详情页 head 行 widget —— 通过 [controllerTag] 找到对应 [SongListHeadControllerBase],
+/// 再按 [source] 委托给三套视觉之一(各有自己的布局,选哪个在本 widget 这层做完):
+/// - `SongListHeadController` (歌单: created / collected / pure) → [_PlaylistHead]
 /// - `AlbumHeadController`    (专辑)                              → [AlbumHead]
 /// - `ArtistHeadController`   (艺人)                              → [ArtistHead]
 ///
-/// **切换逻辑**:`SongListDetail` 用 `controllerTag = playlistId + source` 在 binding
-/// 时同时注册 head / body 两个 controller。`SongListDetail.build` 读
-/// `head.source` 决定显示哪个 head widget —— **这里不再根据 source 切换**,因为
-/// 这三个 head widget 各有自己视觉,选哪个在 detail page 那一层做完。
-///
-/// 当前 [SongListDetail] 调用 `SongListHead(controllerTag: ...)` —— 即 head widget
-/// 自己从 controllerTag 读 source → 转 delegate 到对应视觉子类。
+/// head / body 两个 controller 由 `SongListDetail` 在 binding 时用同一个
+/// `controllerTag = playlistId + source` 一起注册。
 class SongListHead extends StatelessWidget {
   const SongListHead({super.key, required this.controllerTag});
 
@@ -29,7 +23,6 @@ class SongListHead extends StatelessWidget {
   /// AppBar 上"返回"按钮的回退栈 id(沿用项目约定)
   static const int backNavigatorId = DefaultValues.shellNavigatorId;
 
-  /// 行布局占满主轴最大高度(沿用原 SongListDetail 内 head 行的视觉)
   static const int rowMainTextMaxLines = 4;
   static const int rowSubTextMaxLines = 1;
 
@@ -37,7 +30,6 @@ class SongListHead extends StatelessWidget {
   Widget build(BuildContext context) {
     final head = Get.find<SongListHeadControllerBase>(tag: controllerTag);
     final source = head.source;
-    // 按 source 委托给具体 head widget(三个子类视觉差异)
     return switch (source) {
       PlaylistSource.album => AlbumHead(
         controller: head,
@@ -54,12 +46,8 @@ class SongListHead extends StatelessWidget {
 
 /// 歌单形态 head —— 描述 + 按钮列(播放 / 收藏 / 删除)。
 ///
-/// 按钮:
-///   - 播放:head.onPlayAll(由 binding 注入 body.playAll)
-///   - 收藏 / ❤️:head.toggleFavorite(LikedType.playlist)
-///   - 删除:仅 source == PlaylistSource.created 时显示 —— 收藏的/纯的不可删
-///
-/// loading / 出错时整行隐藏(head 显示空字符串也没有意义)
+/// 删除按钮仅 source == PlaylistSource.created 时显示 —— 收藏的 / 纯的不可删。
+/// loading / 出错时整行隐藏(head 显示空字符串也没有意义)。
 class _PlaylistHead extends StatelessWidget {
   const _PlaylistHead({required this.controller, required this.controllerTag});
 
@@ -109,7 +97,7 @@ class _PlaylistHead extends StatelessWidget {
                 if (controller.playlistSource.value == null) {
                   return const SizedBox.shrink();
                 }
-                // 自建(created) → 删除 + 收藏两个按钮(纵向排列)
+                // 自建(created) → 删除按钮(非 created 才显示收藏)
                 if (controller.playlistSource.value == PlaylistSource.created) {
                   return TextButton.icon(
                     icon: const Icon(Icons.delete_outline),
@@ -122,7 +110,7 @@ class _PlaylistHead extends StatelessWidget {
                     ),
                   );
                 }
-                // 收藏的(collected)/ 搜索结果(pure) → 只收藏
+                // 收藏的(collected)/ 搜索结果(pure) → 只显示收藏
                 return _LikeButton(
                   liked: controller.isPlaylistFavorite,
                   onToggle: controller.toggleFavorite,
@@ -137,9 +125,7 @@ class _PlaylistHead extends StatelessWidget {
 }
 
 /// 收藏 ❤️ 按钮 widget —— 自建歌单 / 专辑 / 艺人 head 都会用到。
-///
-/// - [liked] 内部读 Rx,包 Obx 自动响应收藏状态变化
-/// - [onToggle] 调对应 controller 的 toggleFavorite
+/// [liked] 内部读 Rx,包 Obx 自动响应收藏状态变化。
 class _LikeButton extends StatelessWidget {
   const _LikeButton({required this.liked, required this.onToggle});
 
@@ -167,13 +153,9 @@ class _LikeButton extends StatelessWidget {
   }
 }
 
-/// 专辑形态 head —— 标题 + 描述 + 按钮列(播放 / 收藏)。
+/// 专辑形态 head —— 标题 + 描述 + 按钮列(播放 / 收藏)。**没有删除**(专辑不能删)。
 ///
-/// 视觉:`Row` + 左侧封面(SongCover)+ 右侧标题/描述/按钮 Column。
-/// 跟歌单形态相比:
-///   - 标题在标题列上方(歌单 head 没有标题,只显示描述)
-///
-/// 按钮:**没有删除**(专辑不能删)
+/// 跟歌单形态相比:标题在标题列里(歌单 head 没有标题行,只显示描述)。
 class AlbumHead extends StatelessWidget {
   const AlbumHead({
     super.key,
@@ -247,13 +229,7 @@ class AlbumHead extends StatelessWidget {
 }
 
 /// 艺人形态 head —— 圆形头像 + 名字 + 简介 + 按钮列(播放全部 / 关注)。
-///
-/// 视觉:`Row` + 左侧 `CircleAvatar` + 右侧名字/简介/按钮 Column。
-///
-/// 按钮:
-///   - 播放全部:head.onPlayAll(由 binding 注入 body.playAll)
-///   - 关注:head.toggleFavorite(LikedType.artist)
-///   - **没有删除按钮**(艺人不能删)
+/// **没有删除按钮**(艺人不能删)。
 class ArtistHead extends StatelessWidget {
   const ArtistHead({
     super.key,
@@ -279,7 +255,6 @@ class ArtistHead extends StatelessWidget {
       return Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // 圆形头像
           CircleAvatar(
             backgroundColor: scheme.surfaceContainerHigh,
             backgroundImage:
@@ -298,14 +273,12 @@ class ArtistHead extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                // 名字
                 Text(
                   controller.title.value ?? '',
                   style: textTheme.titleMedium,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                // 简介 / bio
                 Text(
                   controller.description.value?.trim().isNotEmpty == true
                       ? controller.description.value!.trim()

@@ -3,7 +3,7 @@ import 'package:get/get.dart';
 import 'ThemeController.dart';
 
 /// 设置页用的三段主题切换器
-/// 使用 ToggleButtons 替代 SegmentedButton 以解决 Android 渲染黑屏问题
+/// 用 ToggleButtons 而不是 SegmentedButton —— 后者在 Android 上渲染黑屏
 class ThemeSwitcher extends StatelessWidget {
   const ThemeSwitcher({super.key});
 

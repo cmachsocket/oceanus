@@ -46,27 +46,15 @@ class AudioPlayerService extends GetxController {
   /// audio_service 后台播放配置。集中构造在 wrapper 而不是 main:配置是音频层
   /// 的关注点(锁屏控件 / 通知 channel / 封面降采样)。
   ///
-  /// 各字段选择:
-  ///   - `androidNotificationChannelId/Name/Description`: 通知 channel,
-  ///     用户在系统设置里能看到 ("网易云音乐播放 / 后台播放与媒体控制")
-  ///   - `androidNotificationOngoing: true`: 通知不可被滑掉 (音乐 app
-  ///     标准 — 用户误滑不会停歌)
-  ///   - `androidStopForegroundOnPause: true`: 暂停时退出 foreground service。
-  ///     **强制要求** (audio_service 的 assert: ongoing=true 时 stopOnPause
-  ///     必须 true, 否则 debug 崩溃)
-  ///   - `androidResumeOnClick: true` (默认): 点通知恢复播放
-  ///   - `preloadArtwork: false` (原本是 true): 加入队列时 audio_service 后台
-  ///     isolate 会启动 `_loadAllArtwork` 异步下载所有歌的封面, 但它迭代的
-  ///     list 跟 QueueHandler.updateQueue 内部 `nvalue..replaceRange` 是同一份
-  ///     (audio_service 0.18.19 QueueHandler.updateQueue.dart:3323 在 nvalue 上
-  ///     原地修改而不是换 nvalue 实例) —— 频繁 setQueue 时下次 iteration 期间
-  ///     上次迭代还没跑完, nvalue 被原地改 → "Concurrent modification during
-  ///     iteration" unhandled exception。锁屏/通知封面只在显示时才下载, 延迟
-  ///     一两秒换来不崩, 划算。
-  ///   - `artDownscaleWidth/Height: 800`: 网易云封面动辄 1000+px, 锁屏控件
-  ///     用 800x800 已经够清晰, 避免大图 OOM (尤其播放队列长时)
-  ///   - `fastForwardInterval/rewindInterval: 15s`: 锁屏快进/快退步长。
-  ///     比 audio_service 默认的 10s 略大, 更符合"跳到副歌"的使用习惯
+  /// 几个非默认值的理由:
+  /// - `androidStopForegroundOnPause: true` 是**强制要求** —— audio_service 的
+  ///   assert 规定 ongoing=true 时 stopOnPause 必须 true,否则 debug 崩溃。
+  /// - `preloadArtwork: false` 是防崩:`_loadAllArtwork` 迭代的 list 跟
+  ///   QueueHandler.updateQueue 内部 `nvalue..replaceRange` 是同一份(它在 nvalue
+  ///   上原地改而不是换实例),频繁 setQueue 时会 "Concurrent modification during
+  ///   iteration"。封面改成显示时才下,延迟一两秒换不崩。
+  /// - `artDownscaleWidth/Height: 800`:锁屏控件够清晰,避免长队列时大图 OOM。
+  /// - `fastForwardInterval/rewindInterval: 15s`:比默认 10s 更符合"跳到副歌"。
   static const AudioServiceConfig _audioServiceConfig = AudioServiceConfig(
     androidNotificationChannelId: 'com.cmach.oceanus.audio',
     androidNotificationChannelName: '网易云音乐播放',
@@ -113,46 +101,26 @@ class AudioPlayerService extends GetxController {
 
   /// handler 的 currentIndex 流订阅 (just_audio 推进 → UI 同步)
   StreamSubscription<int>? _currentIndexSub2;
-  // 持久化触发器: handler.mediaItem / .queue / .playOrder 任一变化 → debounce → _persist()
-  // 覆盖 wrapper 没显式包装的命令 (skipToNext/Previous/自然播完/seek/setPlayOrder)
+  // 持久化触发器:handler.mediaItem / .queue / .playOrder 任一变化 → debounce →
+  // _persist(),覆盖 wrapper 没显式包装的命令(skipToNext/自然播完/seek/setPlayOrder)
   Timer? _persistDebounce;
-  // 启动恢复期间不写盘: init() 末尾的 skipToQueueItem+pause 会触发 mediaItem/queue 流,
-  // 这时若挂上 persist listener 会把"刚恢复的值"再写回磁盘,虽然语义上等价但属于浪费 IO。
+  // 恢复期不写盘,否则会把"刚恢复的值"再写回一遍(语义等价但浪费 IO)。
   bool _persistReady = false;
 
-  // 不 override onInit: GetX 的 _onStart 同步调用 onInit() 并丢弃 future
-  // (见 package:get/get_instance/src/lifecycle.dart _onStart):
-  //   void _onStart() {
-  //     if (_initialized) return;
-  //     onInit();           // 同步调用,future 被丢弃
-  //     _initialized = true;
-  //   }
-  // 所以 onInit 不能放 await 链 (AudioService.init / handler 异步构造等),
-  // 否则 handler 还没就绪 PlayerController.onInit 已经跑完, 会出现
-  // wrapper.audioHandler (late) 还未赋值就被访问的崩溃。
-  //
-  // 异步初始化挪到下面的 [init] 方法, 由 main.dart 用 `Get.putAsync` 在
-  // builder 内 `await wrapper.init()` (跟 AuthController 同模式)。
-  // putAsync 会 await builder() 整链, 等 handler + 5 路 stream 就绪
-  // 再返回 instance, 之后 put PlayerController / LyricsController 时
-  // wrapper.audioHandler (late) 已赋值。
+  // 不能 override onInit:GetX 的 _onStart **同步调用 onInit() 并丢弃 future**
+  // (见 package:get/get_instance/src/lifecycle.dart)。onInit 里放 await 链的话,
+  // handler 还没就绪 PlayerController.onInit 已经跑完,访问 wrapper.audioHandler
+  // (late) 会崩。所以异步初始化挪到 [init],由 main.dart 的 `Get.putAsync` 在
+  // builder 内 await —— putAsync 会 await 整链,返回时 5 路 stream 都已就绪。
 
-  /// 异步初始化: 启动 MediaKit + 读持久化 + 构造 handler + 订阅 5 路 stream
-  ///
-  /// **必须由 main.dart 通过 `Get.putAsync` builder 内 `await init()` 调用**,
-  /// 不能 override `onInit`(GetX 同步调用 + 丢 future), 也不能 `Get.put`
-  /// 后再 await init() (留"已注册未初始化"中间态, 后续 Get.find 会拿到
-  /// 未就绪的 wrapper)。见上面注释里 `_onStart` 的引用。
+  /// 启动 MediaKit + 读持久化 + 构造 handler + 订阅 5 路 stream。
+  /// 只能由 main.dart 的 `Get.putAsync` builder 内 await(理由见上面)。
   Future<void> init() async {
-    // MediaKit init 是同步阻塞,在 init() 里完成。
-    // 后续 setUrl/play 直接用,不需要再 await ready(竞态源)。
-    //
-    // 显式按平台 enable: pubspec 装齐了 android/linux/windows lib 包,
-    // 但默认 android/iOS/macOS 是 false。如果不显式打开,Android 上
-    // media_kit 后端永远不会被激活,setUrl 走 just_audio 默认 ExoPlayer
+    // 必须显式按平台 enable:默认 android/iOS/macOS 都是 false,不打开的话
+    // Android 上 media_kit 后端永远不会激活,setUrl 会走 just_audio 默认 ExoPlayer
     // (网易云 CDN + ExoPlayer 首 chunk 同步 sniff 是打开 Player 冻屏的根因)。
-    // 各平台 flag 跟 pubspec 装的 *_libs_<platform>_audio 包一一对应,
-    // 删包同步删 flag (忘删会抛 Cannot find libmpv.so)。
+    // 各 flag 跟 pubspec 装的 *_libs_<platform>_audio 包一一对应,删包同步删 flag,
+    // 忘删会抛 Cannot find libmpv.so。
     JustAudioMediaKit.ensureInitialized(
       android: true, // dependency: media_kit_libs_android_audio
       linux: true, // dependency: media_kit_libs_linux
@@ -160,18 +128,12 @@ class AudioPlayerService extends GetxController {
     );
     // 必须放行 `ytdl` 协议,否则本机 302 server 起的地址 mpv 打不开。
     //
-    // 现象(真机日志):
-    //   MPV: [error] stream: Failed to open http://localhost:PORT/s/<id>/<id>.mp3.
-    //   MPV: [error] ytdl_hook: Subprocess failed: init
-    // 原因: mpv 默认开着 ytdl_hook,凡是"看起来不是直链"的主机名(包括 localhost)
-    // 会先丢给 yt-dlp 去解析,yt-dlp 拿 `localhost` 当 YouTube 频道名去搜 → 失败 →
-    // 整个源 open 失败(所以后面只跟一个 "Failed to open",没有真正的网络错误)。
-    //
-    // `protocolWhitelist` 是 just_audio_media_kit 的静态开关,默认值只到
-    // http/https/file/...,不含 ytdl;我们把 mpv 允许的协议补齐到跟 mpv 默认
-    // 一致。IP 字面量(127.0.0.1)本身不走 ytdl_hook,所以这一条是双保险:
-    // URL 侧已经改成 127.0.0.1,这里再放开协议,两边都不会踩。
-    // (just_audio 自己的 header 代理也是靠同一条路径访问本机 HTTP server 的)
+    // mpv 默认开着 ytdl_hook,凡是"看起来不是直链"的主机名(含 localhost)都会先
+    // 丢给 yt-dlp 解析;yt-dlp 拿 `localhost` 当 YouTube 频道名去搜 → 失败 →
+    // 整个源 open 失败(真机日志:`ytdl_hook: Subprocess failed: init`)。
+    // `protocolWhitelist` 是 just_audio_media_kit 的静态开关,默认只到
+    // http/https/file/...,不含 ytdl,这里补齐到跟 mpv 默认一致。
+    // (URL 侧已用 127.0.0.1 规避,这条是双保险。)
     if (!JustAudioMediaKit.protocolWhitelist.contains('ytdl')) {
       JustAudioMediaKit.protocolWhitelist = [
         ...JustAudioMediaKit.protocolWhitelist,
@@ -179,10 +141,8 @@ class AudioPlayerService extends GetxController {
       ];
     }
 
-    // ---- 持久化恢复: 在 handler 构造前同步读 GetStorage, 把真相状态
-    // (queue / currentIndex / mode) 作为 handler 的初始值传入。
-    // handler 用 BehaviorSubject 在构造时 emit, wrapper 订阅后自动回放,
-    // 不再由 wrapper 的 Rx 手动 hydrate (避免 UI 恢复了而 handler 为空)。
+    // 持久化恢复:在 handler 构造前同步读 GetStorage,把真相状态(queue /
+    // currentIndex / mode)作为初始值传入,避免"UI 恢复了而 handler 为空"。
     final box = GetStorage();
     final rawQueue = box.read<List>(_storageKey);
     final savedIdx = box.read<int>(_currentIndexKey) ?? -1;
@@ -193,9 +153,8 @@ class AudioPlayerService extends GetxController {
         if (e is Map)
           Song.fromJson(Map<String, dynamic>.from(e)).toMediaItem(
             artHeaders: NeteaseImageHeaders.neteaseImageHeaders,
-            // 传 Song.duration → MediaItem.duration → wrapper._itemToSong 时
-            // 还能正确还原 Song.duration (不然恢复后 playlist[i].duration == 0,
-            // UI 进度条 / 队列列表显示 0:00)
+            // 传 Song.duration 让 _itemToSong 能还原(不然恢复后 duration 为 0,
+            // 进度条 / 队列列表显示 0:00)
             duration: Duration(seconds: (e['duration'] as int?) ?? 0),
           ),
     ];
@@ -216,28 +175,23 @@ class AudioPlayerService extends GetxController {
       config: _audioServiceConfig,
     );
 
-    // mode 不需要在 wrapper 这里手动 hydrate: handler 构造时已经把
-    // initialMode 写进 _playOrder 字段,并在构造尾部 emit 一次到
-    // _playOrderCtrl 流, 下面订阅就会拿到 → _modeRx 自动同步。
-    // (handler 是 mode 唯一真相源, wrapper 只读不写, 单向流)
+    // mode 不用手动 hydrate:handler 构造时已 emit 过,下面订阅就能拿到
+    // (handler 是唯一真相源,wrapper 只读不写)。
 
     // ---- 聚合层:5 个来源 → 1 个 Rx -----------------------------------------
     _stateSub = audioHandler.playbackState.listen(_onPlaybackState);
     _itemSub = audioHandler.mediaItem.listen(_onMediaItem);
     _queueSub = audioHandler.queue.listen(_onQueue);
 
-    // 订阅 handler 推的 currentSongLiked 流 → snapshot.isCurrentSongLiked
-    // (handler 内部处理 likedSongIds 变化 + 换歌两种触发, 主动 emit bool,
-    // 不用 wrapper 自己查 _likedService.likedSongIds)
+    // handler 内部处理 likedSongIds 变化 + 换歌两种触发,主动 emit bool,
+    // wrapper 不用自己查 _likedService
     _currentSongLikedSub = audioHandler.currentSongLiked.listen((liked) {
       snapshot.value = snapshot.value.copyWith(isCurrentSongLiked: liked);
     });
-    // broadcast 无 replay: 订阅后主动刷一次,避免订阅前 handler 已 emit 过
-    // 导致 wrapper 的 isCurrentSongLiked 停在初始 false
+    // broadcast 无 replay,订阅后主动刷一次否则停在初始 false
     audioHandler.refreshCurrentSongLiked();
 
-    // 订阅 handler 推的 playOrder 流 → _modeRx (handler 内部改 _playOrder
-    // 后主动 emit, wrapper 只读不写, 单向流)
+    // handler 改完 _playOrder 后主动 emit,wrapper 只读不写
     _playOrderSub = audioHandler.playOrder.listen((order) {
       _modeRx.value = order;
       _schedulePersist(); // 模式切换也要写盘
@@ -245,16 +199,14 @@ class AudioPlayerService extends GetxController {
     // broadcast 无 replay,兜底刷一次
     audioHandler.refreshPlayOrder();
 
-    // handler 直接把 just_audio 的 currentIndex 推出来(不再塞 extras 反解)。
     // snapshot.currentIndex 也由这条流写 —— 触发源相同,谁先到都不影响最终状态。
     _currentIndexSub2 = audioHandler.currentIndex.listen((idx) {
       _currentIndexSub.value = idx;
       snapshot.value = snapshot.value.copyWith(currentIndex: idx);
     });
 
-    // 启动恢复:把持久化队列灌进 just_audio 的内置队列。真正的 setAudioSources
-    // 在 handler.restore() 里(构造函数不能 await)。这里 await 的是
-    // setAudioSources + 首项 prepare,**不含播放**,所以慢网不会卡住 runApp()。
+    // 启动恢复:setAudioSources 在 handler.restore() 里(构造函数不能 await),
+    // 这里 await 它 + 首项 prepare,**不含播放**,慢网不会卡住 runApp()。
     await audioHandler.restore();
 
     // 持久化自动触发放行:上面的 listener 都挂了 _schedulePersist(),
@@ -352,16 +304,8 @@ class AudioPlayerService extends GetxController {
     await setQueue([song], startIndex: 0);
   }
 
-  /// 把歌曲 append 到当前播放队列末尾(不打断当前播放)。
-  ///
-  /// **跟 `playSong` 区分**:`playSong` 是**替换**整队列并跳到指定歌,
-  /// `addToQueue` 是**追加**到末尾,当前正在播放的歌不动。
-  ///
-  /// **数据通路**:Song → MediaItem → handler.addQueueItem。
-  /// handler override 后会维护 `_queue` + shuffle 索引 + emit queue stream,
-  /// wrapper 这边的 `playlist` RxList 自动同步。
-  ///
-  /// **用例**:LongPressDialog "添加到播放列表"。
+  /// 把歌曲 append 到队列末尾,不打断当前播放 —— 跟 `playSong`(**替换**整队列
+  /// 并跳到指定歌)区分。用例:LongPressDialog "添加到播放列表"。
   Future<void> addToQueue(Song song) async {
     final item = song.toMediaItem(
       artHeaders: NeteaseImageHeaders.neteaseImageHeaders,

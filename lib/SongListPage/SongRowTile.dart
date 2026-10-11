@@ -15,7 +15,7 @@ typedef IsLikedGetter = bool Function();
 /// 歌曲行（供 SongListDetail / ArtistDetail 共用）
 ///
 /// - **fav button 响应式**：[isLiked] 回调被 Obx 包裹，likedIds 变化时
-///   只重建 IconButton（不是整行）—— 与 [LineSongListCard] 同思路。
+///   只重建 IconButton（不是整行）。
 /// - 如果 caller 不传 [isLiked]（null），Obx 闭包里不会触达任何 Rx，零开销。
 class SongRowTile extends StatelessWidget {
   const SongRowTile({
@@ -63,9 +63,8 @@ class SongRowTile extends StatelessWidget {
             portrait: (context) => const SizedBox.shrink(),
             landscape: (context) => Text(song.durationLabel),
           ),
-          // fav button 响应式：likedIds 变化时只重建 IconButton, 不是整行。
-          // isLiked == null 路径不能包 Obx (GetX 检测空订阅会抛 "improper use"),
-          // 直接用普通 IconButton;此路径本来就没 Rx 可订阅, 也不需要响应式。
+          // fav button:isLiked == null 路径不能包 Obx (GetX 检测空订阅会抛
+          // "improper use"),直接用普通 IconButton;此路径本来就没 Rx 可订阅。
           if (isLiked == null)
             IconButton(
               padding: DefaultValues.onlyZero,
@@ -86,16 +85,14 @@ class SongRowTile extends StatelessWidget {
                 tooltip: '喜爱',
               );
             }),
-          // 下载模式下的下载按钮。
-          // 三态合一:
-          // - extraTrailing != null: caller 提供了自定义 trailing (如专辑页"更多"),
-          //   本组件不接管,避免重复按钮挤在一起。
-          // - settingsCtrl.DownloadMode == false: 不显示下载按钮 (隐藏)。
-          // - DownloadMode == true: 显示下载按钮,根据 DownloadService.tasks[songId]
-          //   实时变化: idle / queued / running(progress) / complete(check) / failed(alert)。
+          // 下载按钮:
+          // - downloadMode == false → 不显示,退回 extraTrailing(caller 自定义
+          //   trailing,如专辑页"更多")或空
+          // - downloadMode == true → Obx 盯 DownloadService.tasks[songId],
+          //   按 idle / queued / running(progress) / complete / failed 切图标
           //
-          // 外层 if-else 拆开避免 Obx 闭包零订阅 (GetX 会抛 "improper use") —
-          // DownloadMode 路径必须包 Obx 才能响应 settings 切换,空路径不需要 Obx。
+          // 外层 if-else 拆开避免 Obx 闭包零订阅 (GetX 会抛 "improper use") ——
+          // DownloadMode 路径必须包 Obx 才能响应 settings 切换,空路径不需要。
           if (settingsCtrl.downloadMode.value)
             Obx(() {
               final downloadSvc = Get.find<DownloadService>();
@@ -112,13 +109,10 @@ class SongRowTile extends StatelessWidget {
   }
 }
 
-/// 下载按钮 —— 单一职责,根据 [view] (DownloadService.tasks[songId] 的当前值)
-/// 决定图标 / 进度 / 点击行为。
-///
-/// - view == null (这首歌还没下载过): 显示普通下载图标,点击触发下载
-/// - view.status == enqueued / running: 显示 CircularProgressIndicator,点击取消
-/// - view.status == complete: 显示 check,点击无效 (已在 DownloadPage 提供移除按钮)
-/// - view.status == failed / canceled / notFound: 显示 alert,点击重试 (复用 download())
+/// 下载按钮 —— 单一职责,按 [view] (DownloadService.tasks[songId] 的当前值)
+/// 决定图标 / 进度 / 点击行为:未下载 → 普通下载图标(点击下载);
+/// 排队 / 进行中 → 转圈(点击取消);完成 → check(点击无效);
+/// 失败 / 取消 / notFound → alert(点击重试)。
 class _DownloadButton extends StatelessWidget {
   const _DownloadButton({required this.song, required this.view});
 
@@ -155,7 +149,7 @@ class _DownloadButton extends StatelessWidget {
             }
           },
         ),
-        // running 时按钮底下叠一圈进度环,圆形覆盖在 IconButton 上
+        // running 时叠进度环
         if (status == DownloadStatus.running ||
             status == DownloadStatus.waitingToRetry)
           IgnorePointer(
