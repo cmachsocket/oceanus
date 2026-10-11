@@ -69,14 +69,16 @@ class LyricsController extends GetxController {
     // 启动时缓存的歌永远不加载歌词。
     _snapshotSub = _audio.snapshot.stream.listen(_onSnapshot);
     _onSnapshot(initial);
-    lyricController.setOnTapLineCallback(_audio.seek);
   }
 
   @override
   void onClose() {
     _snapshotSub?.cancel();
+    lyricController.dispose();
     super.onClose();
   }
+
+  Future<void> seekToLyric(Duration position) => _audio.seek(position);
 
   Future<void> switchLyric() async {
     final mode = switch (lyricShowMode.value) {
@@ -100,7 +102,7 @@ class LyricsController extends GetxController {
     _lastSong = song;
 
     if (s.position != _lastPosition) {
-      lyricController.setProgress(s.position);
+      lyricController.setPosition(s.position);
     }
     _lastPosition = s.position;
   }
@@ -116,7 +118,7 @@ class LyricsController extends GetxController {
     if (song == null) {
       _fetchingSongId = null;
       currentLyric.value = null;
-      lyricController.loadLyric('');
+      lyricController.clear();
       return;
     }
     await _loadLyricFor(song.id);
@@ -250,7 +252,7 @@ class LyricsController extends GetxController {
 
     if (lyric == null) {
       currentLyric.value = null;
-      lyricController.loadLyric('');
+      lyricController.clear();
       return;
     }
     // 结束fetch,避免refreshCurrent时被防抖拦截
@@ -265,9 +267,9 @@ class LyricsController extends GetxController {
     // 也才配得上,否则 yrc 的自动打轴会差几百毫秒导致翻译全空
     final aligned = alignLyrics(lyric, Lyrics(lrc: lyric.lrc));
     Get.log("[Lyric] loaded : ${_mainLyric(aligned)}");
-    lyricController.loadLyric(
+    lyricController.load(
       _mainLyric(aligned),
-      translationLyric: switch (lyricShowMode.value) {
+      translation: switch (lyricShowMode.value) {
         LyricShowMode.original => null,
         LyricShowMode.translation => _translation(aligned),
         LyricShowMode.romaji => _nonBlank(aligned.romalrc),

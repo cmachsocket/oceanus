@@ -228,7 +228,7 @@ class AudioPlayerService extends GetxController {
     _currentSongLikedSub?.cancel();
     _playOrderSub?.cancel();
     _currentIndexSub2?.cancel();
-    audioHandler.stop();
+    unawaited(audioHandler.dispose());
     super.onClose();
   }
 

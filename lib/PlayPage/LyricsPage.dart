@@ -5,7 +5,7 @@ import 'package:get/get.dart';
 import 'LyricsController.dart';
 
 /// 可滚动歌词栏:由 [flutter_lyric] 提供渲染 + 高亮 + 自动滚动 + 触摸 seek
-/// 字号 / 颜色全部走主题,在 [LyricStyles.default1] 基础上 copyWith 覆盖外观。
+/// 字号 / 颜色全部走主题,在 [LyricPresets.aurora] 基础上 copyWith 覆盖外观。
 ///
 /// lyricController 来自 [LyricsController] (main.dart 注册, permanent: true,
 /// 跟 PlayerController 同生命周期), 保证:
@@ -25,24 +25,25 @@ class Lyrics extends StatelessWidget {
 
     return LyricView(
       controller: lyrics.lyricController,
-      width: double.infinity,
-      height: double.infinity,
-      style: LyricStyles.default1.copyWith(
+      preset: LyricPresets.aurora.copyWith(
         textStyle: textTheme.titleLarge?.copyWith(
           color: scheme.onSurfaceVariant,
         ),
-        activeStyle: textTheme.titleLarge?.copyWith(
+        activeTextStyle: textTheme.titleLarge?.copyWith(
           color: scheme.secondary,
           fontWeight: FontWeight.bold,
         ),
-        translationStyle: textTheme.titleMedium?.copyWith(
+        translationTextStyle: textTheme.titleMedium?.copyWith(
           color: scheme.onSurfaceVariant,
         ),
-        translationActiveColor: scheme.primary,
-        activeHighlightColor: scheme.primary,
+        activeTranslationTextStyle: textTheme.titleMedium?.copyWith(
+          color: scheme.primary,
+        ),
+        highlight: LyricHighlight.solid(scheme.primary),
         textAlign: TextAlign.center,
-        contentAlignment: CrossAxisAlignment.center,
+        contentAlignment: LyricContentAlignment.center,
       ),
+      onLineTap: (details) => lyrics.seekToLyric(details.seekPosition),
     );
   }
 }
