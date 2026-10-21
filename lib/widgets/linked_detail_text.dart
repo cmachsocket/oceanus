@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import '../ArtistPage/ArtistDetail.dart';
-import '../SongListPage/SongListDetail.dart';
-import '../models/Default.dart';
-import '../models/Song.dart';
-import '../models/LibrarySummary.dart' show PlaylistSource;
+import '../ArtistPage/artist_detail.dart';
+import '../SongListPage/songlist_detail.dart';
+import '../models/default.dart';
+import '../models/song.dart';
+import '../models/library_summary.dart' show PlaylistSource;
 
 /// 歌曲列表里的"艺人 - 专辑"双链接文本
 ///

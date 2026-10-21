@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:cached_network_image_ce/cached_network_image.dart';
-import '../models/Headers.dart';
+import '../models/headers.dart';
 
 /// 工厂:把 URL 包成带 [NeteaseImageHeaders.neteaseImageHeaders] 的
 /// `NetworkImage`,给 `CircleAvatar.backgroundImage` 这类要 ImageProvider 的地方用。

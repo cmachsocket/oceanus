@@ -1,6 +1,6 @@
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import '../models/Headers.dart';
+import '../models/headers.dart';
 
 /// 歌曲 / 专辑 / 艺人 / 歌单封面通用 widget
 ///
