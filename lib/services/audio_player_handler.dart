@@ -168,14 +168,20 @@ class AudioPlayerHandler extends BaseAudioHandler
   void _invalidateSequenceCache() => _lastSequenceLength = null;
 
   /// audio_service 框架在 handler dispose 时调用
+  ///
+  /// 幂等:退出路径可能被 GetX onClose 和 AppShutdown 各碰一次。
   Future<void> dispose() async {
-    _likedSongIdsSub?.cancel();
+    if (_disposed) return;
+    _disposed = true;
+    await _likedSongIdsSub?.cancel();
     _likedSongIdsSub = null;
     await _audio.dispose();
-    _currentSongLikedCtrl.close();
-    _playOrderCtrl.close();
-    _currentIndexCtrl.close();
+    await _currentSongLikedCtrl.close();
+    await _playOrderCtrl.close();
+    await _currentIndexCtrl.close();
   }
+
+  bool _disposed = false;
 
   // ---- 队列快照(全从 just_audio 反查,不自己存副本) -----------------------------
 

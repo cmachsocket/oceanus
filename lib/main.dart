@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -12,6 +13,7 @@ import 'PlayPage/lyrics_controller.dart';
 import 'PlayPage/player_controller.dart';
 import 'SettingsPage/settings_controller.dart';
 import 'services/audio_player_wrapper.dart';
+import 'services/app_shutdown.dart';
 import 'services/lyrics_server_service.dart';
 import 'sdk/netease_api.dart';
 import 'services/liked_controller.dart';
@@ -125,7 +127,7 @@ Future<void> main() async {
     final audioWrapper = AudioPlayerService();
     await audioWrapper.init();
     return audioWrapper;
-  });
+  }, permanent: true);
 
   Get.put<PlayerController>(
     PlayerController(),
@@ -158,8 +160,22 @@ Future<void> main() async {
     unawaited(_startLyricsServerSafely());
   }
 
+  // 退出钩子:桌面端的窗口关闭由 TrayController 拦截(见其 onWindowClose),
+  // 这里兜住 macOS Cmd+Q / 桌面会话登出这类"平台请求退出"的入口。必须在拆
+  // Dart VM 之前 release mpv / node / HTTP server,见 AppShutdown 类注释。
+  _exitListener = AppLifecycleListener(
+    onExitRequested: () async {
+      await AppShutdown.run();
+      return AppExitResponse.exit;
+    },
+  );
+
   runApp(const OceanusApp());
 }
+
+/// 必须持住引用,否则 [AppLifecycleListener] 会被 GC。
+// ignore: unused_element
+AppLifecycleListener? _exitListener;
 
 Future<void> _startLyricsServerSafely() async {
   try {

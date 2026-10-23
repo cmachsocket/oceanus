@@ -240,10 +240,17 @@ class NeteaseApi extends GetxService {
     return MusicResponse.fromNcm(raw);
   }
 
+  Future<void>? _shutdownFuture;
+
+  /// 关掉内嵌 node bridge（桌面端是真实子进程）。幂等。
+  ///
+  /// 退出路径必须 await：Flutter 先退出会把 node 留成孤儿进程。
+  Future<void> shutdown() => _shutdownFuture ??= _ncm.shutdown();
+
   /// 整个 app 退出时调用。
   @override
   void onClose() {
-    _ncm.shutdown();
+    unawaited(shutdown());
     super.onClose();
   }
 

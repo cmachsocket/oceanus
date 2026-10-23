@@ -10,6 +10,7 @@ import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../models/snapshot.dart' show PlaybackSnapshot;
+import 'app_shutdown.dart';
 import 'audio_player_wrapper.dart';
 
 /// ---- 系统托盘控制器 -----------------------------------------------------------
@@ -307,35 +308,54 @@ class TrayController extends GetxController with WindowListener {
   }
 
   void _quit() {
-    // 兜底 flush(GetX 可能来不及跑 AudioPlayerService.onClose)。
-    // 注意不能声明成 Future<void>:exit(0) 永不返回。
     // ignore: discarded_futures
-    windowManager.destroy();
-    // ignore: avoid_print
-    print('[TrayController] 退出应用 (来自托盘菜单)');
-    exit(0);
+    _quitSafely();
+  }
+
+  bool _quitting = false;
+
+  /// 先跑 [AppShutdown.run]（release mpv / node / HTTP server），再真正销毁
+  /// 窗口。顺序不能反：窗口一销毁 engine 就拆 Dart VM，mpv 的 NativeCallable
+  /// 会失效，正在播的歌会让工作线程跳进已释放内存 → SIGSEGV。
+  Future<void> _quitSafely() async {
+    if (_quitting) return;
+    _quitting = true;
+    try {
+      await AppShutdown.run();
+      await windowManager.destroy();
+    } finally {
+      // 收尾已做完（或失败），这里用 exit(0) 保证在有隐藏窗口 / 托盘句柄时
+      // 也能立刻结束，不会因为 setPreventClose(true) 卡住。
+      exit(0);
+    }
   }
 
   // ---- WindowListener ----------------------------------------------------------
 
   /// listener 在所有桌面平台注册 —— 菜单文案依赖这些事件刷新,只在 macOS 注册
   /// 会让 Windows/Linux 上的状态永远不更新(类注释坑 1)。
-  /// 拦截关闭则只 macOS:它习惯点 X 只隐藏,Windows/Linux 习惯点 X 退出。
+  ///
+  /// **所有桌面平台都 `setPreventClose(true)`**:关闭窗口必须经过 [onWindowClose]
+  /// 先跑 [AppShutdown.run],否则 engine 直接拆 Dart VM 会和 mpv 的线程抢内存
+  /// (见 [AppShutdown] 类注释)。macOS 保留"点 X 只隐藏"的历史行为。
   Future<void> _initWindowCloseIntercept() async {
     windowManager.addListener(this);
-    if (Platform.isMacOS) {
-      // 让 close 信号走 onWindowClose 而不是真销毁
-      await windowManager.setPreventClose(true);
-    }
+    await windowManager.setPreventClose(true);
     await _refreshWindowState();
   }
 
   @override
   void onWindowClose() {
-    // macOS 点 X → 隐藏到托盘,而不是退出
+    if (Platform.isMacOS) {
+      // macOS 点 X → 隐藏到托盘,而不是退出
+      // ignore: discarded_futures
+      windowManager.hide();
+      _syncWindowState(false);
+      return;
+    }
+    // Linux / Windows:点 X 退出,但必须先释放原生资源再销毁窗口
     // ignore: discarded_futures
-    windowManager.hide();
-    _syncWindowState(false);
+    _quitSafely();
   }
 
   @override

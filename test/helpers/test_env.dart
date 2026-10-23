@@ -140,6 +140,11 @@ class FakeAudioPlayerService extends AudioPlayerService {
   }
 
   @override
+  Future<void> shutdown() async {
+    commands.add('shutdown');
+  }
+
+  @override
   void onClose() {
     // 故意不调 super.onClose —— 见类注释。
   }

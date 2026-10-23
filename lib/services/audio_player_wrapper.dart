@@ -174,6 +174,7 @@ class AudioPlayerService extends GetxController {
       ),
       config: _audioServiceConfig,
     );
+    _handlerReady = true;
 
     // mode 不用手动 hydrate:handler 构造时已 emit 过,下面订阅就能拿到
     // (handler 是唯一真相源,wrapper 只读不写)。
@@ -214,21 +215,40 @@ class AudioPlayerService extends GetxController {
     _persistReady = true;
   }
 
-  @override
-  void onClose() {
-    // app 退出前把 debounce 期间未刷的状态落盘(Android 杀进程时不保证
-    // onClose 会跑,但 iOS / 用户主动 kill / GetX 路由销毁这些场景能覆盖)
+  /// handler 是否已构造完成。init 失败时 [audioHandler] 仍是未赋值的 late
+  /// final,退出路径不能直接摸它。
+  bool _handlerReady = false;
+
+  Future<void>? _shutdownFuture;
+
+  /// 停播并释放 handler → just_audio → media_kit(mpv)。
+  ///
+  /// **必须在 app 退出之前 await**(见 `services/app_shutdown.dart` 的类注释):
+  /// mpv 的 wakeup 回调是 Dart NativeCallable,engine 拆 Dart VM 后 trampoline
+  /// 就失效,mpv 工作线程仍会跳过去 → SIGSEGV(退出码 139)。幂等。
+  Future<void> shutdown() => _shutdownFuture ??= _shutdown();
+
+  Future<void> _shutdown() async {
+    // app 退出前把 debounce 期间未刷的状态落盘
     _persistDebounce?.cancel();
+    _persistDebounce = null;
     if (_persistReady) {
       _persist();
     }
-    _stateSub?.cancel();
-    _itemSub?.cancel();
-    _queueSub?.cancel();
-    _currentSongLikedSub?.cancel();
-    _playOrderSub?.cancel();
-    _currentIndexSub2?.cancel();
-    unawaited(audioHandler.dispose());
+    await _stateSub?.cancel();
+    await _itemSub?.cancel();
+    await _queueSub?.cancel();
+    await _currentSongLikedSub?.cancel();
+    await _playOrderSub?.cancel();
+    await _currentIndexSub2?.cancel();
+    if (_handlerReady) {
+      await audioHandler.dispose();
+    }
+  }
+
+  @override
+  void onClose() {
+    unawaited(shutdown());
     super.onClose();
   }
 
@@ -420,6 +440,7 @@ class AudioPlayerService extends GetxController {
   }
 
   void _persist() {
+    if (!_handlerReady) return;
     final box = GetStorage();
     // 全部读 handler 真相: 队列 / currentIndex / mode 都从 handler 取,
     // wrapper 的 Rx 只作展示层, 不参与持久化 (彻底单向化)
