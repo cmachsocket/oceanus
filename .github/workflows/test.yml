@@ -1,0 +1,116 @@
+name: Test
+
+# ============================================================================
+# CI gate —— 每次 push / PR 跑一次 `flutter analyze` + `flutter test`
+#
+# 测试套件全离线(不连真实网易云),本地跑完约 10s。
+# `test/ncm_smoke_test.dart` 需要 NCM_BRIDGE_ROOT 才能跑,CI 里没设 →
+# 它自己会 markTestSkipped,不会去连网。
+#
+# 跟 release workflow 的分工:
+#   test.yml  —— 每次 push,只验代码没坏(秒级)
+#   release.yml —— 打 v*.*.* tag 时才跑,出各平台安装包
+# ============================================================================
+
+on:
+  # 不加 filters = 每次 push(任何分支 + 任何 tag)都跑
+  push:
+  pull_request:
+  # 手动触发:本地跑挂了想复现时用
+  workflow_dispatch:
+  # 同时做成 reusable workflow —— release.yml 以后想拿测试当门禁时
+  # 直接 `uses: ./.github/workflows/test.yml` 调,不用改这个文件。
+  workflow_call:
+
+# 同一个分支只留最新一次跑分 —— 连推多次时把旧的 cancel 掉,不排队。
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Analyze + Test (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ------------------------------------------------------------
+      # Source
+      # ------------------------------------------------------------
+      # 不拉 submodule:MusicLibrary / NeteaseCloudMusic_PythonSDK 是旧的
+      # Python SDK 时代的遗留,现在的 Dart 代码不依赖它们(pubspec 里没有
+      # path 依赖),拉下来纯属浪费时间。
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------
+      # System dependencies
+      # ------------------------------------------------------------
+      # flutter test 跑在 flutter_tester 上,要 GTK / OpenGL / liblzma 这些
+      # 运行库;clang + cmake + ninja 是 Dart native assets hook 的编译链
+      # (ncm_api_enhanced 的 hook/build.dart 在 Linux 上是 no-op,但
+      #  pub get 阶段仍要能跑 hook)。
+      # nodejs 是 ncm_api_enhanced 的 desktop bridge 要用的 —— 测试里换成了
+      # 假 bridge 不会真的 spawn,但装上兜底,以后想跑真 bridge 也行。
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang \
+            cmake \
+            g++ \
+            libgl1 \
+            libglu1-mesa \
+            libgtk-3-dev \
+            liblzma-dev \
+            ninja-build \
+            nodejs \
+            pkg-config \
+            xz-utils \
+            zip
+
+      # ------------------------------------------------------------
+      # Cache
+      # ------------------------------------------------------------
+      # Flutter SDK / engine artifacts 由下面 flutter-action 的 cache: true 负责,
+      # 这里只额外缓存 pub 包。
+      - name: Cache Pub
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: pub-ubuntu-flutter-3.47.4-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            pub-ubuntu-flutter-3.47.4-
+            pub-
+
+      # ------------------------------------------------------------
+      # Flutter
+      # ------------------------------------------------------------
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.4
+          cache: true
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      # ------------------------------------------------------------
+      # Dependencies
+      # ------------------------------------------------------------
+      - name: Flutter pub get
+        run: flutter pub get
+
+      # ------------------------------------------------------------
+      # Gate
+      # ------------------------------------------------------------
+      # analyze 跟 test 一起当门禁:AGENTS.md 要求改动不能带 error / warning。
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
