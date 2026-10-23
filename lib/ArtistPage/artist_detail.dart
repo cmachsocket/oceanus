@@ -1,3 +1,4 @@
+import 'package:aspect_driven_grid/aspect_driven_grid.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -9,7 +10,6 @@ import '../SongListPage/songlist_card.dart';
 import '../SongListPage/songlist_detail.dart';
 import '../SongListPage/songlist_head.dart';
 import '../SongListPage/songlist_head_controller.dart';
-import '../widgets/aspect_driven_grid.dart';
 import 'artist_controller.dart';
 
 /// 艺人详情页 —— **复用 head + body 体系**(`ArtistHeadController` /

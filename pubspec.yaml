@@ -43,7 +43,9 @@ dependencies:
   audio_video_progress_bar:
   responsive_builder:
   flutter_lyric:
-  flutter_staggered_grid_view:
+  aspect_driven_grid:
+    git:
+      url: https://github.com/cmachsocket/aspect_driven_grid.git
   # 音频播放:just_audio 是核心引擎,audio_service 加锁屏/通知控制
   just_audio:
   audio_service:
@@ -59,8 +61,8 @@ dependencies:
   path_provider:
   flex_color_picker:
   media_kit_libs_macos_audio:
-  tray_manager: ^0.7.0
-  window_manager: ^0.5.2
+  tray_manager: 
+  window_manager: 
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -70,7 +72,7 @@ dev_dependencies:
   # activated in the `analysis_options.yaml` file located at the root of your
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
-  flutter_lints: ^6.0.0
+  flutter_lints: 
   icons_launcher:
 
 # For information on the generic Dart part of this file, see the

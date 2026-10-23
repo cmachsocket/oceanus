@@ -1,3 +1,4 @@
+import 'package:aspect_driven_grid/aspect_driven_grid.dart';
 import 'package:flutter/material.dart' hide SearchController;
 import 'package:get/get.dart';
 
@@ -9,7 +10,6 @@ import '../SongListPage/songlist_card.dart';
 import '../SongListPage/songlist_detail.dart';
 import '../models/album.dart';
 import '../models/artist.dart';
-import '../widgets/aspect_driven_grid.dart';
 import '../services/repositories/search_repository.dart'
     show SearchType, SearchPlaylistSummary;
 import 'search_controller.dart';
