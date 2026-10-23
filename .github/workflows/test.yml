@@ -40,9 +40,6 @@ jobs:
       # ------------------------------------------------------------
       # Source
       # ------------------------------------------------------------
-      # 不拉 submodule:MusicLibrary / NeteaseCloudMusic_PythonSDK 是旧的
-      # Python SDK 时代的遗留,现在的 Dart 代码不依赖它们(pubspec 里没有
-      # path 依赖),拉下来纯属浪费时间。
       - name: Checkout
         uses: actions/checkout@v4
 

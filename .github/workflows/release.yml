@@ -82,7 +82,6 @@ jobs:
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
-          submodules: recursive
 
       # ----------------------------------------------------------------------
       # 2. Download all 4 platform artifacts

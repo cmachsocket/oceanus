@@ -26,7 +26,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
-          submodules: recursive
 
       # ------------------------------------------------------------
       # Xcode
