@@ -10,6 +10,7 @@ import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../models/snapshot.dart' show PlaybackSnapshot;
+import '../SettingsPage/settings_controller.dart' show SettingsController;
 import 'app_shutdown.dart';
 import 'audio_player_wrapper.dart';
 
@@ -36,7 +37,8 @@ import 'audio_player_wrapper.dart';
 ///    `popUpContextMenu` 是 no-op 且收不到点击事件(README-ZH 149/151 行),
 ///    设成 `rightClicked` 会让左键激活失效、菜单直接打不开。
 ///
-/// 另:macOS 拦截"点 X"改成隐藏到托盘;Linux/Windows 保持点 X 退出。
+/// 另:macOS 拦截"点 X"改成隐藏到托盘;Linux/Windows 默认点 X 退出,
+/// 设置页「窗口退出按钮」打开后同样改成隐藏到托盘(见 [_exitToTrayEnabled])。
 class TrayController extends GetxController with WindowListener {
   // TrayIcon / Menu / MenuItem **必须**持有引用,否则被 GC 时 nativeapi 的
   // finalizer 释放句柄,图标或菜单项随之消失。
@@ -344,10 +346,18 @@ class TrayController extends GetxController with WindowListener {
     await _refreshWindowState();
   }
 
+  /// 设置页「窗口退出按钮」开关:打开后 Linux/Windows 点 X 也隐藏到托盘。
+  ///
+  /// 现查 SettingsController(它是 main.dart 里 permanent 注册的全局单例),
+  /// 不缓存 —— 用户改完开关立刻下一次点 X 就生效。
+  bool get _exitToTrayEnabled =>
+      Get.isRegistered<SettingsController>() &&
+      Get.find<SettingsController>().exitToTray.value;
+
   @override
   void onWindowClose() {
-    if (Platform.isMacOS) {
-      // macOS 点 X → 隐藏到托盘,而不是退出
+    if (Platform.isMacOS || _exitToTrayEnabled) {
+      // macOS 点 X → 隐藏到托盘,而不是退出(历史行为,不受开关影响)
       // ignore: discarded_futures
       windowManager.hide();
       _syncWindowState(false);

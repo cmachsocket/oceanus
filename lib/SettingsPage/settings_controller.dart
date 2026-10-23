@@ -7,10 +7,14 @@ enum Quality { standard, higher, exhigh, lossless, hires }
 
 class SettingsController extends GetxController {
   static const _key = 'quality_v1';
+  static const _exitToTrayKey = 'exit_to_tray_v1';
   final _box = GetStorage();
 
   late final Rx<Quality> currentQuality;
   final Rx<bool> downloadMode = false.obs;
+
+  /// 关闭窗口时最小化到托盘,而不是退出应用。默认关(Linux/Windows 点 X 退出)。
+  late final Rx<bool> exitToTray;
 
   @override
   void onInit() {
@@ -20,6 +24,7 @@ class SettingsController extends GetxController {
     currentQuality = Quality.values
         .firstWhere((e) => e.name == saved, orElse: () => Quality.standard)
         .obs;
+    exitToTray = (_box.read<bool>(_exitToTrayKey) ?? false).obs;
   }
 
   /// 内存值先变再写盘,所以写盘失败也会保留新值(下次写盘重试)。
@@ -27,5 +32,11 @@ class SettingsController extends GetxController {
   Future<void> setQuality(Quality q) async {
     currentQuality.value = q;
     await _box.write(_key, q.name);
+  }
+
+  /// 同 [setQuality]:先改内存再写盘,改完立刻生效(下次点关闭窗口时读取)。
+  Future<void> setExitToTray(bool enabled) async {
+    exitToTray.value = enabled;
+    await _box.write(_exitToTrayKey, enabled);
   }
 }

@@ -56,6 +56,35 @@ void main() {
 
       expect(controller.downloadMode.value, isFalse);
     });
+
+    test('exitToTray 默认关', () async {
+      await initTestStorage();
+      final controller = Get.put<SettingsController>(SettingsController());
+
+      expect(controller.exitToTray.value, isFalse);
+    });
+
+    test('setExitToTray 更新内存值并写盘', () async {
+      await initTestStorage();
+      final controller = Get.put<SettingsController>(SettingsController());
+
+      await controller.setExitToTray(true);
+
+      expect(controller.exitToTray.value, isTrue);
+      expect(GetStorage().read<bool>('exit_to_tray_v1'), isTrue);
+    });
+
+    test('重新创建 controller 时从盘上恢复 exitToTray', () async {
+      await initTestStorage();
+      await Get.put<SettingsController>(
+        SettingsController(),
+      ).setExitToTray(true);
+
+      Get.delete<SettingsController>(force: true);
+      final restored = Get.put<SettingsController>(SettingsController());
+
+      expect(restored.exitToTray.value, isTrue);
+    });
   });
 
   group('ThemeController', () {

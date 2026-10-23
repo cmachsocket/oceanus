@@ -8,6 +8,7 @@ import '../theme/theme_switcher.dart';
 import '../models/default.dart';
 import 'quality_switcher.dart';
 import 'download_page.dart';
+import 'about_page.dart';
 
 /// 设置 tab 内容(放进 app_shell 的 IndexedStack)。
 /// 父级 IndexedStack 必须被 Expanded 包裹 —— 否则 Column 的主轴给的是
@@ -90,6 +91,27 @@ class Settings extends StatelessWidget {
           ),
           onTap: () => Get.to(
             () => const DownloadPage(),
+            id: DefaultValues.shellNavigatorId,
+          ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.exit_to_app),
+          title: const Text('窗口退出按钮'),
+          subtitle: const Text('退出应用/最小化到托盘'),
+          trailing: Obx(
+            () => Switch(
+              value: settingsCtrl.exitToTray.value,
+              onChanged: settingsCtrl.setExitToTray,
+            ),
+          ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.info_outline),
+          title: const Text('关于'),
+          subtitle: const Text('版本号 / 开源协议 / 联系方式'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Get.to(
+            () => const AboutPage(),
             id: DefaultValues.shellNavigatorId,
           ),
         ),
