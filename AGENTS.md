@@ -35,7 +35,7 @@ Annotations must be concise and unambiguous, conveying only what is necessary. D
 
 # Testing and Quality Assurance
 
-No tests should be written or added to the production codebase. All tests should be written into the "tests/" folder.
+No tests should be written or added to the production codebase. All tests should be written into the "test/" folder.
 
 use `flutter analyze` to check for any errors or warnings in the code. If any errors or warnings are found, you must fix them before proceeding.
 
