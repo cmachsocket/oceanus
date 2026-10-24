@@ -15,23 +15,14 @@ import 'artist_controller.dart';
 /// 艺人详情页 —— **复用 head + body 体系**(`ArtistHeadController` /
 /// `SongListBodyController`),中间插 [SegmentedButton] 切 EP/专辑 网格 vs 所有歌曲列表。
 ///
-/// **结构**:
-/// ```
-/// AppBar (动态标题 from head)
-/// ─── SongListHead(controllerTag)              ← 复用 head
-/// ─── SegmentedButton(view)                     ← view state 在 ArtistController
-/// ─── switch content:
-///     ├─ view == albums → _AlbumsSection        ← AspectDrivenGrid + SongListCard
-///     └─ view == songs  → SongListBody          ← 复用 body
-/// ```
+/// **结构**:AppBar(动态标题 from head) → SongListHead → SegmentedButton
+/// (view state 在 ArtistController) → 按 view 切 _AlbumsSection(AspectDrivenGrid
+/// + SongListCard)或 SongListBody。
 ///
-/// **controller 三方**:
-/// - [ArtistHeadController] (head):艺人元信息 + 关注 + 播放全部
-/// - [SongListBodyController] (body):所有歌曲列表(`/artist/songs`)
-/// - [ArtistController] (本文件):view state + 专辑列表(`/artist/albums`) + 专辑收藏
-///
-/// 三方共用同一 `controllerTag = artistId + artist`,binding 时一起注入。
-/// head 不直接依赖 [ArtistController],body 也不依赖 —— 它们读各自的 Rx。
+/// **controller 三方**:[ArtistHeadController](head:艺人元信息 + 关注 + 播放全部)、
+/// [SongListBodyController](body:所有歌曲列表)、[ArtistController](本文件:view
+/// state + 专辑列表 + 专辑收藏)。三方共用同一 `controllerTag = artistId + artist`,
+/// binding 时一起注入;head / body 不依赖 [ArtistController],各读自己的 Rx。
 class ArtistDetail extends StatelessWidget {
   const ArtistDetail({super.key, required this.artistId});
 

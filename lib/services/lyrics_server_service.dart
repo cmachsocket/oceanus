@@ -11,27 +11,10 @@ import 'repositories/lyrics_repository.dart';
 
 /// 本地 HTTP 服务 —— 暴露当前播放状态给外部 lyric 客户端
 ///
-/// 监听端口 `41831`,返回 `/local-asset/player` GET 端点。
-/// 响应 schema 跟 YesPlayMusic 桌面 lyric 客户端约定一致(见 `templete.json`):
-///
-/// ```json
-/// {
-///   "success": true,
-///   "data": {
-///     "progress": 24.265941,          // 当前位置 (秒,float)
-///     "playing": true,                // 是否在播放
-///     "volume": 1,                    // 音量 0~1
-///     "currentTrack": { ... },        // 当前歌曲(网易云 schema 字段尽量填,缺失留空)
-///     "isLiked": true,                // 是否收藏
-///     "repeatMode": "off" | "list" | "one",
-///     "lyric": {
-///       "lrc": "[00:00.000]...",
-///       "tlyric": "",                 // 本项目不区分翻译歌词,固定空串
-///       "romalrc": ""                 // 同上
-///     }
-///   }
-/// }
-/// ```
+/// 监听端口 `41831`,返回 `/local-asset/player` GET 端点,响应 schema 跟
+/// YesPlayMusic 桌面 lyric 客户端约定一致(见 `templete.json`):
+/// `{"success":true,"data":{progress,playing,volume,currentTrack,isLiked,
+/// repeatMode,lyric:{lrc,tlyric,romalrc}}}`(tlyric / romalrc 本项目固定空串)。
 ///
 /// **生命周期**:通过 [startServer] 启动后阻塞 accept;失败 throw 让 main.dart
 /// 走错误日志(默认端口冲突时退出,提示用户)。

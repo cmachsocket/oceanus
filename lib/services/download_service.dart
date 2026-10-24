@@ -13,22 +13,11 @@ import 'repositories/song_repository.dart';
 
 /// 全局下载管理 service。
 ///
-/// 文件规则：
+/// 文件规则:`歌曲名字 - 歌手.mp3` / `歌曲名字 - 歌手.flac`。文件格式不依赖 URL
+/// 后缀,而是根据实际文件内容判断。支持 MP3、FLAC。
 ///
-///   歌曲名字 - 歌手.mp3
-///   歌曲名字 - 歌手.flac
-///
-/// 文件格式不依赖 URL 后缀，而是根据实际文件内容判断。
-///
-/// 支持：
-///   - MP3
-///   - FLAC
-///
-/// 文件不存在时：
-///   - 删除 background_downloader 数据库记录
-///   - 删除 taskId -> songId 映射
-///   - 从 UI tasks 中删除
-///   - 业务层视为“未下载”
+/// 文件不存在时:删除 background_downloader 数据库记录 + taskId -> songId 映射,
+/// 从 UI tasks 中删除,业务层视为“未下载”。
 class DownloadService extends GetxService {
   final SongRepository _songRepo;
 
@@ -55,17 +44,13 @@ class DownloadService extends GetxService {
   /// Desktop Downloads 目录。
   String? _desktopDownloadsDir;
 
-  // ---------------------------------------------------------------------------
   // Platform
-  // ---------------------------------------------------------------------------
 
   static bool get _isAndroid {
     return !kIsWeb && Platform.isAndroid;
   }
 
-  // ---------------------------------------------------------------------------
   // init
-  // ---------------------------------------------------------------------------
 
   Future<void> init() async {
     if (_started) return;
@@ -80,9 +65,7 @@ class DownloadService extends GetxService {
       taskProgressCallback: _onProgress,
     );
 
-    // -------------------------------------------------------------------------
     // Desktop Downloads
-    // -------------------------------------------------------------------------
 
     if (!_isAndroid) {
       final dir = await getDownloadsDirectory();
@@ -102,9 +85,7 @@ class DownloadService extends GetxService {
       }
     }
 
-    // -------------------------------------------------------------------------
     // Restore
-    // -------------------------------------------------------------------------
 
     final records = await _downloader.database.allRecords(group: _group);
 
@@ -134,9 +115,7 @@ class DownloadService extends GetxService {
         );
       }
 
-      // -----------------------------------------------------------------------
       // 文件已经不存在
-      // -----------------------------------------------------------------------
 
       if (!_isFileAvailable(savedPath)) {
         debugPrint(
@@ -154,9 +133,7 @@ class DownloadService extends GetxService {
         continue;
       }
 
-      // -----------------------------------------------------------------------
       // 检查实际格式 + 修正扩展名
-      // -----------------------------------------------------------------------
 
       final fileType = await _detectAudioFileType(savedPath!);
 
@@ -172,9 +149,7 @@ class DownloadService extends GetxService {
         continue;
       }
 
-      // -----------------------------------------------------------------------
       // 修正文件名
-      // -----------------------------------------------------------------------
 
       final normalizedPath = await _normalizeExistingFile(
         savedPath,
@@ -205,9 +180,7 @@ class DownloadService extends GetxService {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Download
-  // ---------------------------------------------------------------------------
 
   Future<bool> download(Song song) async {
     final songId = song.id;
@@ -222,9 +195,7 @@ class DownloadService extends GetxService {
       final existing = tasks[songId];
 
       if (existing != null) {
-        // ---------------------------------------------------------------------
         // 已完成
-        // ---------------------------------------------------------------------
 
         if (existing.status == DownloadStatus.complete) {
           final savedPath = existing.savedPath;
@@ -242,25 +213,19 @@ class DownloadService extends GetxService {
 
           await _removeStaleTask(songId: songId, taskId: existing.taskId);
         }
-        // ---------------------------------------------------------------------
         // 正在下载
-        // ---------------------------------------------------------------------
         else if (existing.status != DownloadStatus.failed &&
             existing.status != DownloadStatus.canceled &&
             existing.status != DownloadStatus.notFound) {
           return false;
         }
-        // ---------------------------------------------------------------------
         // 失败 / 取消 / 404
-        // ---------------------------------------------------------------------
         else {
           await remove(songId);
         }
       }
 
-      // -------------------------------------------------------------------------
       // 获取 URL
-      // -------------------------------------------------------------------------
 
       final url = await _songRepo.fetchSongUrl(songId);
 
@@ -278,28 +243,13 @@ class DownloadService extends GetxService {
         return false;
       }
 
-      // -------------------------------------------------------------------------
-      // 临时文件名
-      // -------------------------------------------------------------------------
-      //
-      // 不要在这里写 .mp3。
-      //
-      // 因为网易云返回的真实格式可能是 FLAC。
-      //
-      // 完成后根据文件头判断真正格式。
-      //
-      // 最终：
-      //
-      //   歌曲 - 歌手.mp3
-      //   歌曲 - 歌手.flac
-      //
+      // 临时文件名:不要在这里写 .mp3 —— 网易云返回的真实格式可能是 FLAC,
+      // 完成后根据文件头判断真正格式,最终是 `歌曲 - 歌手.mp3` / `歌曲 - 歌手.flac`。
       final baseName = _buildBaseFileName(song);
 
       final temporaryFilename = '$baseName.download';
 
-      // -------------------------------------------------------------------------
       // Construct task
-      // -------------------------------------------------------------------------
 
       final DownloadTask task;
 
@@ -345,9 +295,7 @@ class DownloadService extends GetxService {
         'filename=${task.filename}',
       );
 
-      // -------------------------------------------------------------------------
       // enqueue
-      // -------------------------------------------------------------------------
 
       final enqueued = await _downloader.enqueue(task);
 
@@ -393,9 +341,7 @@ class DownloadService extends GetxService {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Remove
-  // ---------------------------------------------------------------------------
 
   Future<void> remove(String songId) async {
     final view = tasks[songId];
@@ -424,9 +370,7 @@ class DownloadService extends GetxService {
     tasks.remove(songId);
   }
 
-  // ---------------------------------------------------------------------------
   // Clear finished
-  // ---------------------------------------------------------------------------
 
   Future<void> clearFinished() async {
     final toRemove = <String>[];
@@ -458,9 +402,7 @@ class DownloadService extends GetxService {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // callbacks
-  // ---------------------------------------------------------------------------
 
   void _onStatus(TaskStatusUpdate update) {
     debugPrint(
@@ -523,9 +465,7 @@ class DownloadService extends GetxService {
     );
   }
 
-  // ---------------------------------------------------------------------------
   // Finalize
-  // ---------------------------------------------------------------------------
 
   Future<void> _finalizeDownload(
     DownloadTask task,
@@ -533,9 +473,7 @@ class DownloadService extends GetxService {
     DownloadTaskView existing,
   ) async {
     try {
-      // -----------------------------------------------------------------------
       // 找到下载后的临时文件
-      // -----------------------------------------------------------------------
 
       final temporaryPath = await task.filePath();
 
@@ -552,9 +490,7 @@ class DownloadService extends GetxService {
         return;
       }
 
-      // -----------------------------------------------------------------------
       // 判断真实格式
-      // -----------------------------------------------------------------------
 
       final fileType = await _detectAudioFileType(temporaryPath);
 
@@ -587,20 +523,12 @@ class DownloadService extends GetxService {
         'filename=$finalFileName',
       );
 
-      // -----------------------------------------------------------------------
       // Android
-      // -----------------------------------------------------------------------
 
       if (_isAndroid) {
-        //
-        // background_downloader 的 SharedStorage 支持 mimeType。
-        //
-        // 这样即使 task 本身临时文件是：
-        //
-        //   xxx.download
-        //
-        // 移入 Downloads 时，系统可以根据真实 MIME 类型处理最终文件。
-        //
+        // background_downloader 的 SharedStorage 支持 mimeType —— 即使 task 的
+        // 临时文件是 `xxx.download`,移入 Downloads 时系统也能按真实 MIME 类型
+        // 处理最终文件。
         final sharedPath = await _downloader.moveToSharedStorage(
           task,
           SharedStorage.downloads,
@@ -630,18 +558,9 @@ class DownloadService extends GetxService {
           '$sharedPath',
         );
 
-        // ---------------------------------------------------------------------
-        // Android 返回的路径就是 SharedStorage 中实际文件路径。
-        //
-        // 如果插件因为 MIME 类型没有自动得到目标文件名，
-        // 尝试把它改成：
-        //
-        //   歌曲 - 歌手.flac
-        //
-        // 或：
-        //
-        //   歌曲 - 歌手.mp3
-        // ---------------------------------------------------------------------
+        // Android 返回的路径就是 SharedStorage 中实际文件路径。如果插件因为
+        // MIME 类型没有自动得到目标文件名,尝试把它改成 `歌曲 - 歌手.flac`
+        // 或 `歌曲 - 歌手.mp3`。
 
         final normalizedPath = await _normalizeAndroidSharedPath(
           sharedPath,
@@ -671,9 +590,7 @@ class DownloadService extends GetxService {
         return;
       }
 
-      // -----------------------------------------------------------------------
       // Desktop
-      // -----------------------------------------------------------------------
 
       final normalizedPath = await _normalizeDesktopFile(
         temporaryPath,
@@ -728,9 +645,7 @@ class DownloadService extends GetxService {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Audio type detection
-  // ---------------------------------------------------------------------------
 
   /// 只识别：
   ///
@@ -752,7 +667,6 @@ class DownloadService extends GetxService {
         final header = await raf.read(12);
 
         if (header.length >= 4) {
-          // ---------------------------------------------------------------
           // FLAC
           //
           // 66 4C 61 43
@@ -766,7 +680,6 @@ class DownloadService extends GetxService {
             return _AudioFileType.flac;
           }
 
-          // ---------------------------------------------------------------
           // MP3: ID3
           //
           // 49 44 33
@@ -780,7 +693,6 @@ class DownloadService extends GetxService {
             return _AudioFileType.mp3;
           }
 
-          // ---------------------------------------------------------------
           // MP3: MPEG audio frame sync
           //
           // 常见 MPEG1/2 Layer III：
@@ -809,9 +721,7 @@ class DownloadService extends GetxService {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Filename
-  // ---------------------------------------------------------------------------
 
   /// 构造：
   ///
@@ -886,9 +796,7 @@ class DownloadService extends GetxService {
         RegExp(r'^LPT[1-9]$').hasMatch(upper);
   }
 
-  // ---------------------------------------------------------------------------
   // Desktop normalize
-  // ---------------------------------------------------------------------------
 
   Future<String?> _normalizeDesktopFile(
     String sourcePath,
@@ -930,9 +838,7 @@ class DownloadService extends GetxService {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Android normalize
-  // ---------------------------------------------------------------------------
 
   Future<String?> _normalizeAndroidSharedPath(
     String sharedPath,
@@ -990,30 +896,18 @@ class DownloadService extends GetxService {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Restore shared storage path
-  // ---------------------------------------------------------------------------
 
   Future<String?> _restoreSavedPath(DownloadTask task) async {
-    // -------------------------------------------------------------------------
     // Desktop
-    // -------------------------------------------------------------------------
 
     if (!_isAndroid) {
       return await task.filePath();
     }
 
-    // -------------------------------------------------------------------------
-    // Android
-    // -------------------------------------------------------------------------
-    //
-    // moveToSharedStorage 后，task.filePath() 指向的是原来的 temporary 文件，
-    // 而 Android 上实际文件已经进入 SharedStorage。
-    //
-    // background_downloader 提供 pathInSharedStorage() 用于获取共享存储路径。
-    //
-    // 这里优先用 task.filename。
-    // -------------------------------------------------------------------------
+    // Android:moveToSharedStorage 后 task.filePath() 指向的是原来的 temporary
+    // 文件,而实际文件已经进入 SharedStorage —— 用 background_downloader 的
+    // pathInSharedStorage() 获取共享存储路径,优先用 task.filename。
 
     try {
       final path = await _downloader.pathInSharedStorage(
@@ -1035,9 +929,7 @@ class DownloadService extends GetxService {
     return await task.filePath();
   }
 
-  // ---------------------------------------------------------------------------
   // Existing file normalization
-  // ---------------------------------------------------------------------------
 
   Future<String?> _normalizeExistingFile(
     String path,
@@ -1093,9 +985,7 @@ class DownloadService extends GetxService {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Path
-  // ---------------------------------------------------------------------------
 
   String _joinPath(String directory, String filename) {
     if (directory.endsWith(Platform.pathSeparator)) {
@@ -1105,9 +995,7 @@ class DownloadService extends GetxService {
     return '$directory${Platform.pathSeparator}$filename';
   }
 
-  // ---------------------------------------------------------------------------
   // File existence
-  // ---------------------------------------------------------------------------
 
   bool _isFileAvailable(String? path) {
     if (path == null || path.isEmpty) {
@@ -1131,9 +1019,7 @@ class DownloadService extends GetxService {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Stale task
-  // ---------------------------------------------------------------------------
 
   Future<void> _removeStaleTask({
     required String songId,
@@ -1154,9 +1040,7 @@ class DownloadService extends GetxService {
     tasks.remove(songId);
   }
 
-  // ---------------------------------------------------------------------------
   // Database
-  // ---------------------------------------------------------------------------
 
   Future<void> _deleteTaskRecord(String taskId) async {
     if (taskId.isEmpty) {
@@ -1179,9 +1063,7 @@ class DownloadService extends GetxService {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Status
-  // ---------------------------------------------------------------------------
 
   DownloadStatus _mapStatus(TaskStatus s) {
     switch (s) {
@@ -1211,9 +1093,7 @@ class DownloadService extends GetxService {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Metadata
-  // ---------------------------------------------------------------------------
 
   String _encodeMeta(String songId, Song song) {
     return jsonEncode({'songId': songId, 'song': song.toJson()});
@@ -1248,9 +1128,7 @@ class DownloadService extends GetxService {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Lifecycle
-  // ---------------------------------------------------------------------------
 
   @override
   void onClose() {
@@ -1261,9 +1139,7 @@ class DownloadService extends GetxService {
   }
 }
 
-// ===========================================================================
 // Audio type
-// ===========================================================================
 
 enum _AudioFileType {
   mp3,
@@ -1290,9 +1166,7 @@ enum _AudioFileType {
   }
 }
 
-// ===========================================================================
 // Metadata
-// ===========================================================================
 
 class _Meta {
   final String songId;

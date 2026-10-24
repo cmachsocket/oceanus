@@ -174,11 +174,9 @@ class LibraryController extends GetxController {
 
   /// 创建新歌单 —— 由 LibraryPage FAB 触发
   ///
-  /// 流程:
-  /// 1. 登录态自检(未登录直接 toast,不弹 dialog 免得用户输入完才发现没用)
-  /// 2. 弹 AlertDialog 输入名字(空 / 取消 → 退出)
-  /// 3. 调 [_playlistRepo.createPlaylist],成功 → loadPlaylists 刷新列表,
-  ///    失败 → 写 [createError] 让 dialog 显示错误文案
+  /// 流程:① 登录态自检(未登录直接 toast)② 弹 AlertDialog 输入名字(空 / 取消 →
+  /// 退出)③ 调 [_playlistRepo.createPlaylist],成功 → loadPlaylists 刷新列表,
+  /// 失败 → 写 [createError] 让 dialog 显示错误文案。
   ///
   /// 声明成 `void ... async` 而不是 `Future<void>`:调用点是
   /// `IconButton.onPressed`(`VoidCallback?`),返回 Future 会被
@@ -208,15 +206,12 @@ class LibraryController extends GetxController {
 
   /// 弹一个简单 AlertDialog 让用户输入歌单名字。返回名字,取消返回 `null`。
   Future<String?> _promptPlaylistName() async {
-    // 注意：不要把 createError 用 Obx 放进这个 dialog。
-    //
-    // 这个 dialog 在用户点「创建/取消」后立即 pop，而 createError 只在
-    // pop 之后的 addPlaylist() 里才会被写。Android 上 Get.dialog 的
-    // Future 在 Navigator.pop 时就 complete（不等退场动画），此时 dialog
-    // 的 Obx 如果还依赖外部 Rx，退场动画期间外部写 Rx 会触发已经
-    // deactivating 的 InheritedElement rebuild，导致 framework 的
-    // `_dependents.isEmpty` assertion。新建歌单的输入框本身不需要在这里
-    // 显示错误——创建失败提示交给 SnackBar / 列表刷新处理。
+    // 注意：不要把 createError 用 Obx 放进这个 dialog。dialog 在用户点
+    // 「创建/取消」后立即 pop，而 createError 只在 pop 之后的 addPlaylist() 里
+    // 才会被写。Android 上 Get.dialog 的 Future 在 Navigator.pop 时就 complete
+    // （不等退场动画），此时 dialog 的 Obx 如果还依赖外部 Rx，退场动画期间外部
+    // 写 Rx 会触发已经 deactivating 的 InheritedElement rebuild，导致 framework
+    // 的 `_dependents.isEmpty` assertion。创建失败提示交给 SnackBar / 列表刷新。
     final controller = TextEditingController();
     final result = await Get.dialog<String>(
       AlertDialog(

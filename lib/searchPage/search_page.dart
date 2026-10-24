@@ -67,18 +67,13 @@ class _SearchResults extends StatelessWidget {
 
 /// 单曲列表:复用 SongListBody(已有 loading / empty / list 三态)
 ///
-/// **数据源**:不再调后端(`/playlist/track/all?id=X`)。通过 [SongListBodyController]
-/// 的 `loadSongsCustom` 钩子,直接把 `SearchController.songResults` 喂给 body。
-///
-/// **响应式**:`Obx` 监听 `c.songResults` 变化时,手动 `body.songs.assignAll(...)`
-/// 同步 —— body 内部的 Obx 检测到 `songs` Rx 变化触发重建。
+/// **数据源**:不再调后端。通过 [SongListBodyController] 的 `loadSongsCustom` 钩子,
+/// 直接把 `SearchController.songResults` 喂给 body;`Obx` 监听变化时手动
+/// `body.songs.assignAll(...)`,body 内部的 Obx 检测到 Rx 变化触发重建。
 ///
 /// **生命周期**(纯 StatelessWidget,不用 StatefulWidget —— 这是项目硬要求):
-/// - Obx 多次 rebuild 时,`!isRegistered` 守卫保证同一个 tag 只 put 一次
-/// - 重复进 build 走 else 分支同步数据,不创建新 controller,不会触发 `onInit` 二次初始化
-/// - keyword 切换时,旧 tag 的 controller 在路由 pop(`permanent: false`)时被 GetX 自动清理
-/// - `[SongListBodyController.ready]` 用 `late`(不是 `late final`),即使 controller
-///   实例被复用过 onInit 二次跑也不会抛 `LateInitializationError`
+/// `!isRegistered` 守卫保证同一 tag 只 put 一次;keyword 切换时旧 tag 的
+/// controller 在路由 pop(`permanent: false`)时被 GetX 自动清理。
 class _SongView extends StatelessWidget {
   const _SongView({required this.c});
 
@@ -112,15 +107,11 @@ class _SongView extends StatelessWidget {
       // 实际同步交给 [loadSongsCustom] + [SongListBodyController.watchExternal]
       // (在 onInit 链外执行,不阻塞 widget build)。
       //
-      // **生命周期**:
-      // - 第一次 build:`!isRegistered` → Get.put → 内部 onInit →
-      //   Future.microtask 调 _loadSongs → 调 loadSongsCustom →
-      //   body.songs 赋值 + watchExternal(c.songResults) 注册 ever worker
-      // - 第二次 build:同 tag 已注册 → 跳过 Get.put → 直接 return SongListBody
-      // - 外部 songResults 变化:ever worker 触发 → body.songs 自动同步
-      //   → SongListBody 内部 Obx rebuild → ListView 更新
-      // - 切 keyword:旧 tag 的 controller 在 GetX 自动回收(Get.put permanent: false)
-      //   → onClose 释放 ever worker,无内存泄漏
+      // **生命周期**:第一次 build → Get.put → onInit → microtask 调 _loadSongs
+      // → loadSongsCustom 赋值 body.songs + 注册 ever worker;之后同 tag 已注册
+      // → 跳过 Get.put;外部 songResults 变化 → ever worker → body.songs 同步
+      // → SongListBody 内部 Obx rebuild;切 keyword → 旧 tag controller 被 GetX
+      // 回收(permanent: false)→ onClose 释放 ever worker。
       if (!Get.isRegistered<SongListBodyController>(tag: tag)) {
         Get.put(
           SongListBodyController(

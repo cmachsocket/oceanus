@@ -13,10 +13,7 @@ import 'tray_controller.dart';
 /// VM，而 media_kit 注册给 libmpv 的 wakeup 回调是 Dart NativeCallable。VM 一
 /// 拆 trampoline 就失效，mpv 的工作线程仍会跳到那块内存 → SIGSEGV（退出码
 /// 139，coredump 里表现为 libmpv 线程 `#0 n/a + 0x0`）。所以停播 + dispose
-/// 播放器这一步不能省。
-///
-/// 同理，node 子进程 / 两个本机 HTTP server / 托盘句柄也在这里收尾，避免
-/// `main()` 直接返回时 glibc 跑析构器与这些库的线程互相踩。
+/// 播放器这一步不能省。node 子进程 / 两个本机 HTTP server / 托盘句柄同理。
 ///
 /// 幂等：窗口 close 和托盘"退出"可能同时到达，重复调用返回同一个 future。
 /// 每一步都是 best-effort —— 单步失败不能挡住后面的释放，更不能让窗口关不掉。

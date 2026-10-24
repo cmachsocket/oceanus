@@ -30,10 +30,9 @@ class SongListBodyController extends GetxController {
   /// 责任:① 立即给 `body.songs` 赋值;② 可选调 [watchExternal] 让外部 Rx 变化
   /// 自动同步到 `body.songs`。
   ///
-  /// 必须是 **sync**:`_loadSongs` 走 `Future.microtask` 推迟到下一个 microtask,
-  /// async 钩子虽然也能跑完但会多占一层,不如 sync 稳。
+  /// 必须是 **sync**:`_loadSongs` 走 `Future.microtask`,async 钩子会多占一层。
   ///
-  /// 禁止:`Get.find(tag: ...)`(在 onInit 同步链里调同 tag 的 find 会让 GetX
+  /// 禁止:`Get.find(tag: ...)`(onInit 同步链里调同 tag 的 find 会让 GetX
   /// reentrant 状态错乱)、同步阻塞的网络请求(该走 `_loadSongs` 默认分支)。
   final void Function(SongListBodyController)? loadSongsCustom;
 

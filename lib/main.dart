@@ -140,15 +140,11 @@ Future<void> main() async {
   Get.put<LyricsController>(LyricsController(), permanent: true);
 
   // ---- 系统托盘 (桌面端) -------------------------------------------------------
-  // 必须在 AudioPlayerService 注册之后:TrayController 依赖 wrapper (调
-  // skipToNext/Previous/play/pause/toggleFavorite)。TrayController 内部
-  // _isSupportedPlatform 守卫,移动端 / Web 走 no-op,不创建 TrayIcon,
-  // 不订阅 stream,零开销。
+  // 必须在 AudioPlayerService 注册之后:TrayController 依赖 wrapper。TrayController
+  // 内部 _isSupportedPlatform 守卫,移动端 / Web 走 no-op,零开销。
   //
-  // permanent: false (默认) 即可:这是顶层基础设施,GetX 智能管理在 app 退出
-  // 时随 GetX 容器一起清理,onClose 会 dispose TrayIcon/Menu 释放原生句柄。
-  // 如果后面需要从某个 UI 主动 Get.delete<TrayController>() 重置,用
-  // Get.delete(force: true) 会触发 onClose。
+  // permanent: false (默认) 即可:GetX 在 app 退出时随容器一起清理,onClose 会
+  // dispose TrayIcon/Menu。需要主动重置时用 Get.delete(force: true) 触发 onClose。
   if (Platform.isLinux || Platform.isMacOS || Platform.isWindows) {
     Get.put<TrayController>(TrayController());
   }

@@ -222,14 +222,12 @@ class NeteaseApi extends GetxService {
     final query = positionalToQuery(method, params);
     // Attach the held identity cookie so upstream can recognise the caller.
     //
-    // Upstream's util/option.js reads `query.cookie` (a JSON object or a
-    // `k=v; k=v` string) before falling back to NETEASE_COOKIE env. Without
-    // this injection every call hits NCM anonymously → user_account returns
-    // null, library fetches get 301, etc.
+    // Upstream's util/option.js reads `query.cookie` before falling back to
+    // NETEASE_COOKIE env. Without this every call hits NCM anonymously →
+    // user_account returns null, library fetches get 301, etc.
     //
     // Order: caller-provided `cookie` wins, then auth (login), then anon
-    // (visitor), then empty. Calling code that wants to suppress cookies
-    // can pass `cookie: ''`.
+    // (visitor), then empty. Pass `cookie: ''` to suppress cookies.
     final hasCallerCookie =
         query.containsKey('cookie') && query['cookie'] != null;
     if (!hasCallerCookie) {

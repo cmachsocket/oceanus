@@ -17,10 +17,8 @@ import '../services/repositories/playlist_repository.dart';
 /// **不存**:歌曲列表 —— 那归 [SongListBodyController] 管。head / body 是
 /// sibling controller,各存一份 `playlistId`(同一资源),可以分别销毁 / 重建。
 ///
-/// 三个子类按资源类型决定元信息加载路径 + 收藏语义:
-///   - [SongListHeadController] 歌单(created / collected / pure)
-///   - [AlbumHeadController]    专辑(album)
-///   - [ArtistHeadController]   艺人(artist)
+/// 子类按资源类型决定元信息加载路径 + 收藏语义:[SongListHeadController] 歌单、
+/// [AlbumHeadController] 专辑、[ArtistHeadController] 艺人。
 abstract class SongListHeadControllerBase extends GetxController {
   SongListHeadControllerBase({
     required this.playlistId,

@@ -13,12 +13,8 @@ import '../models/lyrics.dart';
 /// 歌词控制器:订阅 [AudioPlayerService.snapshot],在回调里 diff 出
 /// currentSong / position 的变化,拉歌词 + 推进高亮。
 ///
-/// **只依赖 wrapper 不依赖 PlayerController**:音频真相全在
-/// `snapshot.currentSong / snapshot.position`;绕一层 UI facade 会让调试时说不清
-/// 该信哪一层的状态,还会把歌词的生命周期跟 UI facade 绑死。
-///
-/// **不拆 currentSong / position 的单独 Rx**:snapshot 已是单一真相,再拆 6+ 个
-/// Rx 容易双写不同步。
+/// 只依赖 wrapper 不依赖 PlayerController(音频真相全在 snapshot),也不再拆
+/// currentSong / position 的单独 Rx(snapshot 已是单一真相,再拆容易双写不同步)。
 ///
 /// 生命周期:permanent(main.dart 注册)。跨路由返回时 LyricView 重新 mount 能从
 /// `lyricNotifier.value` 直接拿到当前 lyric,不用重拉。
@@ -126,22 +122,12 @@ class LyricsController extends GetxController {
 
   /// 按**整行文本**匹配,用 lrc 的行时间覆写 yrc 的行时间。
   ///
-  /// ## 为什么需要对轴
+  /// yrc 逐字时间是自动打轴的,跟 lrc 对不上(实测 50 行偏移在 -1440ms ~ +6670ms
+  /// 之间飘),直接用会让行高亮跟人声错位,而且翻译永远查不到(tlyric / romalrc
+  /// 是 lrc 时间轴,flutter_lyric 容差只有 10ms)。所以以文本对齐、以 lrc 的时间为准。
   ///
-  /// yrc(逐字)的时间是自动打轴出来的,跟 lrc 对不上:实测 50 行里逐行偏移在
-  /// -1440ms ~ +6670ms 之间飘。直接用 yrc 会让行高亮跟人声对不上,而且**翻译永远
-  /// 出不来** —— flutter_lyric 配翻译走 `LrcParser.findTranslation(ms, tolerance: 10)`,
-  /// 而 tlyric / romalrc 都是 lrc 时间轴,10ms 容差下差几百毫秒必然查不到。
-  /// 所以以文本对齐、以 lrc 的时间为准。
-  ///
-  /// ## 关键取舍
-  ///
-  /// - **逐字时间同步平移**:只换行头会让逐字高亮和行高亮各走各的轴,反而更乱;
-  ///   delta 整体平移行内所有 `(start,dur,0)`,行内相对节奏不变。
-  /// - **按出现顺序消费**:副歌重复的同一句在 lrc 里有多个时间点,一一对应消费,
-  ///   不会串台;对不齐就保持 yrc 原值。
-  /// - **只改时间,不改内容**:没匹配上的行原样输出(逐字歌词是主内容,宁可少改
-  ///   也别丢字),元信息行 `{"t":0,"c":[...]}` 也按整行文本一起对。
+  /// 取舍:逐字时间整体平移(只换行头会让两种高亮各走各的轴);重复句按出现顺序
+  /// 消费(一一对应,不串台);只改时间不改内容(没匹配上的行原样输出,宁可少改别丢字)。
   ///
   /// [lrc] 只用到它的 lrc 字段(缺省回退到 [yrc] 自带的 lrc)。返回合并后的新
   /// [Lyrics],yrc 是对齐后的文本。
@@ -286,29 +272,18 @@ class LyricsController extends GetxController {
 
   /// 把 tlyric 的行时间戳改写成主歌词(lrc)的时间戳 —— **精度无关**。
   ///
-  /// flutter_lyric 两条解析路径配翻译的方式**不一样**:
-  /// - `YrcParser`(歌有逐字版):`LrcParser.findTranslation(map, ms, 10)`
-  ///   —— **±10ms 容差**
-  /// - `LrcParser`(歌没有逐字版,主歌词就是 lrc):
-  ///   `translationMap[duration.inMilliseconds]` —— **精确查表,零容差**
+  /// flutter_lyric 配翻译的两条路径容差不同:`YrcParser` 走
+  /// `LrcParser.findTranslation(map, ms, 10)`(±10ms),`LrcParser` 走
+  /// `translationMap[duration.inMilliseconds]`(精确查表,零容差)。而 lrc / tlyric
+  /// 的小数位数由上传者决定(2 位 3 位都有),差 4ms 就让走 lrc 的歌**一个 key 都
+  /// 查不到** —— 症状是"这一首有翻译、下一首没有"。
   ///
-  /// 而 lrc / tlyric 的小数位数**由上传者决定,2 位 3 位都有**(tlyric 常见 3 位,
-  /// lrc 也见过 3 位的,同一首歌里两者位数不一致也常见):
-  /// lrc `[00:31.18]`=31180,tlyric `[00:31.184]`=31184 → 差 4ms,
-  /// 走 lrc 的歌就**整首一个 key 都查不到**。而走哪条路取决于该歌有没有逐字版,
-  /// 症状就是"这一首有翻译、下一首没有"。
+  /// 做法:不去猜精度,直接把 tlyric 落到 lrc 的时间轴上(主歌词本来就在 lrc 轴上),
+  /// 两边落到同一批毫秒值,精确查表和 ±10ms 容差都能命中。
   ///
-  /// ## 做法:不去猜精度,直接把 tlyric 落到 lrc 的时间轴上
-  ///
-  /// 主歌词本来就在 lrc 时间轴上(有 yrc 时 [alignLyrics] 已经用 lrc 覆写过 yrc
-  /// 的行时间),两边一落到同一批毫秒值上,精确查表和 ±10ms 容差都能命中。
-  ///
-  /// 行 → 时间的对应关系:
-  /// - **行数一致**:按行号一一对应。翻译逐行对应原文,比按时间猜可靠 ——
-  ///   哪怕上传者整体时间轴有偏移,配上的文本也是对的。
-  /// - **行数不一致**:退化成**时间就近匹配**([_translationToleranceMs] 内取最近
-  ///   的、且没被占用的)。宁可不配,也不能把翻译挂到错误的行上 —— 错配比没有
-  ///   翻译更糟。
+  /// 行 → 时间的对应:行数一致按行号一一对应(翻译逐行对应原文,比按时间猜可靠);
+  /// 行数不一致退化成时间就近匹配([_translationToleranceMs] 内取最近的且未被占用
+  /// 的)。宁可不配,也不能把翻译挂到错误的行上。
   String _alignTranslationToLrc(String? lrc, String tlyric) {
     if (lrc == null || lrc.trim().isEmpty) return tlyric;
 
@@ -354,13 +329,12 @@ class LyricsController extends GetxController {
 
   /// 一次扫描,挑出 text 里所有**真正的歌词行**,返回 (行下标, 时间戳ms)。
   ///
-  /// 判定行身份的唯一入口是 [_hasLyricLine] —— 制作信息 JSON、纯标签行、
-  /// 空正文行都在那里被排除。这样"哪些算歌词行"只有一份定义:
-  /// [_realLyric](判空)和 [_alignTranslationToLrc](配对)不会各说各话。
+  /// 判定行身份的唯一入口是 [_hasLyricLine](制作信息 JSON、纯标签行、空正文行都在
+  /// 那里被排除),这样"哪些算歌词行"只有一份定义:[_realLyric](判空)和
+  /// [_alignTranslationToLrc](配对)不会各说各话。
   ///
   /// ⚠️ 判空和配对必须共用这一套判据。之前配对只看"有没有时间戳",于是
-  /// `[00:20.00]` 这种空行被当成一句翻译,凭空多占一个槽位,把真正能对上的翻译
-  /// 挤掉(行数判断也随之走偏)。
+  /// `[00:20.00]` 这种空行被当成一句翻译,凭空多占一个槽位,把真正能对上的翻译挤掉。
   ///
   /// **行下标**是必需的:回写时要按位置替换时间戳。yrc 逐字行返回 null 时间戳
   /// (它的时间在 `[start,dur]` 行头里,不是 lrc 时间轴),但仍算歌词行。
@@ -453,23 +427,16 @@ class LyricsController extends GetxController {
 
   /// 空字符串 / **只有元信息没有歌词** → null。
   ///
-  /// 后者是真实存在的坑:没有歌词的曲子,网易云仍然会返回这种内容 ——
-  /// ```
-  /// {"t":-1,"c":[{"tx":"作词: "},{"tx":"Glebs Pupkovs"},{"tx":"/"},{"tx":"Anait Karina Isahanova"}]}
-  /// {"t":-1,"c":[{"tx":"作曲: "},...]}
-  /// ```
-  /// 字符串**非空**(所以 `_nonBlank` 会放行),但一行歌词都没有,`t` 还是 -1。
-  /// 这种内容喂给 flutter_lyric 的实际结果:没有任何 parser 的行首规则能匹配
-  /// (JSON 不是 `[mm:ss.xx]` 也不是 `[start,dur]`),于是走 FallbackParser →
-  /// **空模型 → 界面空白**,用户看到的就是"这首歌没歌词",而不是明确的提示。
+  /// 后者是真实存在的坑:没有歌词的曲子,网易云仍然会返回
+  /// `{"t":-1,"c":[{"tx":"作词: "},...]}` 这种内容 —— 字符串**非空**(_nonBlank 会
+  /// 放行)但一行歌词都没有,喂给 flutter_lyric 时四个 parser 全不匹配 → 走
+  /// FallbackParser → 空模型 → 界面空白,用户看到的是"没歌词"而不是明确提示。
   ///
   /// 所以判空要多一层:**必须含有真正的歌词行**(lrc 行头带正文 / yrc 逐字行)。
   ///
-  /// 顺带修掉的另一种表现:当元信息和真逐字歌词**共存**时(大多数正常歌曲都是),
-  /// `YrcParser._extractJsonLine` 会把 `{"t":0,"c":[{"tx":"作词: "}...]}` 当成
-  /// 歌词行渲染出来(`start = 0ms`),界面上凭空多一行"作词: xxx"。
-  /// (这个 `_realLyric` 管不了 —— 它只判"有没有歌词";要根治得在喂进去之前
-  /// 剥掉 JSON 行。)
+  /// 另:元信息和真逐字歌词**共存**时(大多数正常歌曲),`YrcParser` 会把
+  /// `{"t":0,"c":[...]}` 当成歌词行渲染(`start = 0ms`),界面凭空多一行"作词: xxx"。
+  /// _realLyric 管不了这个(它只判"有没有歌词"),要根治得在喂进去之前剥掉 JSON 行。
   String? _realLyric(String? text) {
     final t = _nonBlank(text);
     if (t == null) return null;

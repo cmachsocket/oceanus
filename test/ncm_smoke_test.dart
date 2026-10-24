@@ -1,13 +1,8 @@
 // SPDX-License-Identifier: MIT
 //
-// End-to-end smoke test for the new NCM API Enhanced integration.
-//
-// Replaces the old `worker_smoke_test.dart` which depended on
-// ApiClient + ApiWorker (the worker-isolate RPC layer that's gone).
-// We test:
-//   - NcmApi.start() (spawn node + connect NDJSON)
-//   - A real upstream NCM call (search)
-//   - MusicResponse adapter shape
+// End-to-end smoke test for the NCM API Enhanced integration: NcmApi.start()
+// (spawn node + connect NDJSON), a real upstream NCM call (search), and the
+// MusicResponse adapter shape.
 //
 // Run from project root:
 //   NCM_BRIDGE_ROOT=$PWD/build/ncm_bridge \

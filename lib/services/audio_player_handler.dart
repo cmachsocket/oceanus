@@ -242,22 +242,16 @@ class AudioPlayerHandler extends BaseAudioHandler
     //
     // just_audio 的 sequenceStateStream 是**唯一**需要听的流:currentIndexStream
     // / sequence / shuffleIndices / loopMode / shuffleModeEnabled 全都是它的
-    // 派生流(见 just_audio 内部 addStream 接线),所以只听一条就不会漏事件。
+    // 派生流,只听一条就不会漏事件。
     //
-    // ⚠️ **这条流是热路径,不是"队列变了"的通知**:
-    //     _currentIndexSubscription = playbackEventStream.listen(
-    //       (e) => _sequenceStateSubject.add(sequenceState.copyWith(currentIndex: ...)))
-    // 每来一个播放事件(position 每次跳动)就发一次,一秒好几次。必须在里面
-    // 自己 diff,否则每 tick 都重建队列 + 重发 mediaItem + 重建 controls
-    // —— UI 线程会被 audio_service 的全量 queue 广播拖垮(参见 just_audio
-    // issue #872 描述的现象),歌词这种要随 snapshot 刷新的 UI 就直接不出现。
+    // ⚠️ **这条流是热路径,不是"队列变了"的通知**:每个 position tick 都会发一次,
+    // 必须在里面自己 diff,否则每 tick 都重建队列 + 重发 mediaItem + 重建 controls,
+    // UI 线程会被 audio_service 的全量 queue 广播拖垮(参见 just_audio issue #872)。
     //
-    // 判变只看两样,都是 O(1) 且不分配:
-    //   - 队列长度 `_audio.audioSources.length`:增删必然改长度
-    //   - currentIndex:同一个值直接跳过
+    // 判变只看两样,都是 O(1) 且不分配:队列长度 `_audio.audioSources.length`
+    // (增删必然改长度)和 currentIndex(同一个值直接跳过)。
     // **不要**拿 `seq.sequence` 做 `identical` 判变:`ConcatenatingAudioSource
-    // .sequence` 是 `children.expand((s) => s.sequence).toList()`,每次访问都是
-    // 新实例,判变永远为 true(已实测)。
+    // .sequence` 每次访问都是新实例,判变永远为 true(已实测)。
     // "等长替换"(setAudioSources 长度相同)由 [_invalidateSequenceCache] 补一刀。
     _audio.sequenceStateStream.listen((seq) {
       final order = _playOrder;
@@ -538,16 +532,10 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   /// PlayOrder → just_audio 的 LoopMode + 我们这边的 shuffle 排列。
   ///
-  /// 映射表:
-  /// | PlayOrder    | LoopMode | shuffle 排列 |
-  /// |--------------|----------|--------------|
-  /// | sequential   | all      | 空(自然顺序) |
-  /// | shuffle      | all      | 随机排列      |
-  /// | repeatOne    | one      | 空            |
-  ///
-  /// **sequential 为什么是 all 而不是 off**:本 App 的 sequential 是**头尾循环**
-  /// (列表循环,网易云 / QQ 音乐的默认行为),映射成 off 会变成"播完最后一首就停"。
-  /// just_audio 的 `_getRelativeIndex` 在 LoopMode.all 下越界才做 `% n`,正好对上。
+  /// sequential → LoopMode.all(本 App 的 sequential 是**头尾循环**,映射成 off
+  /// 会变成"播完最后一首就停";just_audio 的 `_getRelativeIndex` 在 LoopMode.all
+  /// 下越界才做 `% n`,正好对上);shuffle → LoopMode.all + 随机排列;
+  /// repeatOne → LoopMode.one + 空排列。
   ///
   /// [skipToNext] 不走 `seekToNext`(它按 just_audio 的恒等序算),理由见
   /// [_shuffleOrder]。
@@ -569,26 +557,18 @@ class AudioPlayerHandler extends BaseAudioHandler
   /// shuffle 播放顺序:`_shuffleOrder[pos] = queueIndex`,即"播放顺序里第 pos 个
   /// 位置放队列里的第几首"。空 list = 非 shuffle(自然顺序)。
   ///
-  /// ## 为什么这部分还在 Dart 侧
-  ///
-  /// just_audio 自己的 shuffle 是 `shuffle()`(重新生成 `shuffleIndices` + 调平台
-  /// 层 `setShuffleOrder`),而 `setShuffleModeEnabled()` **只是个开关** ——
+  /// **为什么这部分还在 Dart 侧**:`setShuffleModeEnabled()` **只是个开关** ——
   /// 它在 Dart 侧只翻 `sequenceState.shuffleModeEnabled`,**不重新生成
-  /// shuffleIndices**,只是把 `setShuffleMode` 发给平台层。
+  /// shuffleIndices**。我们跑在 just_audio_media_kit(mpv)上,`setShuffleMode` 会让
+  /// mpv 真的重排自己的 playlist 并把新下标报回来,而 just_audio 这边的
+  /// `shuffleIndices` 还是恒等序 —— 两边对"现在播的是第几首"的认知错开,表现为
+  /// **切换播放顺序时莫名其妙跳到另一首**。用 just_audio 的 `shuffle()` 同步也不行:
+  /// 它依赖平台的 `setShuffleOrder`,而 just_audio_media_kit 未实现(抛
+  /// UnimplementedError)。
   ///
-  /// 我们跑在 just_audio_media_kit(Android/Linux/Windows 都是 mpv)上:
-  ///   - `setShuffleMode` → `mpv setShuffle(true)` → **mpv 会真的重排自己的
-  ///     playlist**,当前播放项在 playlist 里的下标随之改变,mpv 再把新下标报回来;
-  ///   - 而 just_audio 这边的 `shuffleIndices` 还是恒等序,`currentIndex` 也
-  ///     按老下标不变 —— 两边对"现在播的是第几首"的认知直接错开,
-  ///     于是表现为**切换播放顺序时莫名其妙跳到另一首**(mediaItem 变了)。
-  ///   - 想用 just_audio 的 `shuffle()` 把排列同步过去也不行:它依赖平台的
-  ///     `setShuffleOrder`,而 just_audio_media_kit **没有实现**这个方法
-  ///     (会抛 UnimplementedError)。
-  ///
-  /// 所以:队列 / 当前索引 / 循环 **全部**交给 just_audio(那是本次改造的目的),
-  /// 只有"shuffle 排列"留在 Dart 侧 —— 这是当前后端的限制,不是没改干净的残留。
-  /// 副作用正好也是想要的:mpv 从头到尾不被要求重排 playlist,切模式绝不会动歌。
+  /// 所以:队列 / 当前索引 / 循环 **全部**交给 just_audio,只有"shuffle 排列"留在
+  /// Dart 侧 —— 这是当前后端的限制。副作用正好也是想要的:mpv 从头到尾不被要求
+  /// 重排 playlist,切模式绝不会动歌。
   List<int> _shuffleOrder = [];
 
   /// 重洗排列,并把**当前正在放的这首钉在第 0 位**(跟 just_audio `shuffle()`
@@ -671,13 +651,11 @@ class AudioPlayerHandler extends BaseAudioHandler
   ///
   /// 两条路(见 [LocalRedirectServer]):
   /// - **server 开启**:每首歌只生成一个稳定地址,**零网络请求**;真地址在
-  ///   播放器 prepare 那一刻由 server 现查 + 302。
-  ///   音质在建队列时读一次烤进 `?q=`,所以播放中途改音质不影响已建好的队列,
-  ///   要换音质得重建队列。
-  /// - **降级**(端口被占 / web 不支持 dart:io):只能一次性把真地址全解析出来,
-  ///   用 `/song/url/v1` 的批量参数一次问完(而不是 N 首歌 N 次请求)。
-  ///   取不到地址的项(VIP / 地区限制 / 未登录)**直接剔除**,并把 [startIndex]
-  ///   按剔除数量左移,保证要播的还是同一首。
+  ///   播放器 prepare 那一刻由 server 现查 + 302。音质在建队列时读一次烤进 `?q=`,
+  ///   所以播放中途改音质不影响已建好的队列,要换音质得重建队列。
+  /// - **降级**(端口被占 / web 不支持 dart:io):一次性把真地址全解析出来,用
+  ///   `/song/url/v1` 的批量参数一次问完。取不到地址的项(VIP / 地区限制 /
+  ///   未登录)**直接剔除**,并把 [startIndex] 按剔除数量左移,保证要播的还是同一首。
   ///
   /// 返回 `(sources, 调整后的 startIndex)`。
   Future<(List<AudioSource>, int)> _buildSources(
@@ -810,9 +788,8 @@ class AudioPlayerHandler extends BaseAudioHandler
   /// `getResources().getIdentifier(name, "drawable", packageName)` 找。
   /// 不存在的资源会让 `PlaybackStateCompat$CustomAction$Builder.<init>` 抛
   /// IllegalArgumentException → AudioService.setState catch 后只打 stacktrace,
-  /// 但 handler 内部 `playerStateStream` 每 200ms 都触发一次 rebuild controls,
-  /// 主 isolate 进入 setState retry loop + logd 撞配额 → 打开 app 时 UI 冻屏
-  /// (实际 audio 在播但 UI thread 被 stacktrace printing 占满)。
+  /// 而 `playerStateStream` 每 200ms 触发一次 rebuild controls → 主 isolate 进入
+  /// setState retry loop + logd 撞配额 → 打开 app 时 UI 冻屏。
   /// 修复:对齐 res/drawable 实际文件名 (ic_favorite / ic_favorite_border,
   /// 不是 raw_favorite_border)。
   List<MediaControl> _buildControls({required bool isCurrentSongLiked}) {

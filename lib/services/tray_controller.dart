@@ -17,28 +17,20 @@ import 'audio_player_wrapper.dart';
 /// ---- 系统托盘控制器 -----------------------------------------------------------
 ///
 /// 桌面平台注册托盘图标 + 菜单(显示/隐藏、上一首、播放暂停、下一首、喜欢、退出)。
-/// 菜单命令直接调 [AudioPlayerService] —— 不绕 PlayerController,因为后者不是
-/// permanent,tray 命令可能在页面 pop 之后到达,GetX 会重建一个空 controller。
+/// 菜单命令直接调 [AudioPlayerService] —— 不绕 PlayerController(后者不是 permanent,
+/// tray 命令可能在页面 pop 之后到达,GetX 会重建一个空 controller)。
 ///
 /// **三处必须记住的坑**(都实际踩过,改动前先读这里):
+/// 1. 显隐判断一律现查 `windowManager.isVisible()`,不要用本地缓存(缓存只由
+///    focus/blur 写,菜单点击 / 标题栏 X / 任务栏最小化都不保证发这些事件)。
+/// 2. 菜单 label 改了不会自动通知面板,必须重建整份菜单 —— nativeapi 0.3.0 在
+///    `MenuItem.label` 变更时既不发 `LayoutUpdated` 信号也不递增 revision,
+///    故走 `_rebuildMenu()` + 重新 `setContextMenu`。
+/// 3. 别动 `setContextMenuTrigger` —— Linux 菜单由面板自己弹,应用侧
+///    `popUpContextMenu` 收不到点击事件,设成 `rightClicked` 会让菜单打不开。
 ///
-/// 1. **显隐判断一律现查 `windowManager.isVisible()`**,不要用本地缓存。缓存只由
-///    focus/blur 写,而菜单点击、标题栏 X、任务栏最小化都不保证发这些事件,
-///    缓存失真就变成"藏起来后再点也唤不回来"。
-///
-/// 2. **菜单 label 改了不会自动通知面板,必须重建整份菜单**。Linux 上菜单经
-///    D-Bus dbusmenu 交给面板,面板只在打开时拉一次 GetLayout 并缓存;协议里
-///    通知它"布局变了"靠 `LayoutUpdated` 信号,而 nativeapi 0.3.0 在
-///    `MenuItem.label` 变更时既不发信号也不递增 revision(实测:3 秒内 0 信号,
-///    revision 恒定)。症状是显隐行为正确、菜单文字却永远停在初始值。
-///    故走 `_rebuildMenu()` + 重新 `setContextMenu`,强制面板重拉。
-///
-/// 3. **别动 `setContextMenuTrigger`**。Linux 菜单由面板自己弹,应用侧
-///    `popUpContextMenu` 是 no-op 且收不到点击事件(README-ZH 149/151 行),
-///    设成 `rightClicked` 会让左键激活失效、菜单直接打不开。
-///
-/// 另:macOS 拦截"点 X"改成隐藏到托盘;Linux/Windows 默认点 X 退出,
-/// 设置页「窗口退出按钮」打开后同样改成隐藏到托盘(见 [_exitToTrayEnabled])。
+/// 另:macOS 拦截"点 X"改成隐藏到托盘;Linux/Windows 默认点 X 退出,设置页
+/// 「窗口退出按钮」打开后同样改成隐藏到托盘(见 [_exitToTrayEnabled])。
 class TrayController extends GetxController with WindowListener {
   // TrayIcon / Menu / MenuItem **必须**持有引用,否则被 GC 时 nativeapi 的
   // finalizer 释放句柄,图标或菜单项随之消失。

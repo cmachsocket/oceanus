@@ -50,7 +50,7 @@ class AudioPlayerService extends GetxController {
   /// - `androidStopForegroundOnPause: true` 是**强制要求** —— audio_service 的
   ///   assert 规定 ongoing=true 时 stopOnPause 必须 true,否则 debug 崩溃。
   /// - `preloadArtwork: false` 是防崩:`_loadAllArtwork` 迭代的 list 跟
-  ///   QueueHandler.updateQueue 内部 `nvalue..replaceRange` 是同一份(它在 nvalue
+  ///   QueueHandler.updateQueue 内部的 `nvalue..replaceRange` 是同一份(它在 nvalue
   ///   上原地改而不是换实例),频繁 setQueue 时会 "Concurrent modification during
   ///   iteration"。封面改成显示时才下,延迟一两秒换不崩。
   /// - `artDownscaleWidth/Height: 800`:锁屏控件够清晰,避免长队列时大图 OOM。
@@ -343,13 +343,12 @@ class AudioPlayerService extends GetxController {
 
   /// toggle 当前歌曲的喜欢状态 (LikedType.song)
   ///
-  /// 上层 (PlayerController / LyricsController 等) 想"按 like 按钮"时调
-  /// 此方法, 不直接 G`et.find<LikedController>().toggle()` — 走 wrapper 集中:
-  ///   - 依赖收敛: 上层 controller 只依赖 wrapper, 不需要直接 import LikedController
-  ///     链路清晰: `UI → wrapper.toggleFavorite → _likedService.toggle →
-  ///     likedSongIds 变化 → handler._likedSongIdsSub 监听 →
-  ///     _currentSongLikedCtrl.add → wrapper snapshot.isCurrentSongLiked 更新 →
-  ///     PlayerController.isLiked 镜像 → UI Obx 刷新` (整链单向流)
+  /// 上层 (PlayerController / LyricsController 等) 想"按 like 按钮"时调此方法,
+  /// 不直接 `Get.find<LikedController>().toggle()` — 走 wrapper 集中:上层只依赖
+  /// wrapper,不需要 import LikedController,链路保持单向流
+  /// (`UI → wrapper.toggleFavorite → _likedService.toggle → likedSongIds 变化 →
+  /// handler 监听 → wrapper snapshot.isCurrentSongLiked → PlayerController.isLiked
+  /// 镜像 → UI Obx 刷新`)。
   ///
   /// handler 内部的 [AudioPlayerHandler.customAction] (锁屏 like 按钮) 也直接调
   /// `_likedService.toggle`, handler 是音频底层所以该处不绕 wrapper。

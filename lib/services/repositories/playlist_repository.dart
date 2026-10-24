@@ -62,7 +62,6 @@ class PlaylistRepository extends GetxService {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // 歌单写入
   //
   // status 一直是 200 即使业务失败(API 包了一层),所以**必须**看 body.code。
@@ -207,5 +206,4 @@ class PlaylistRepository extends GetxService {
     final nested = r.body['body'];
     return nested is Map && nested['code'] == 200;
   }
-  // ---------------------------------------------------------------------------
 }

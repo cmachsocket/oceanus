@@ -13,11 +13,9 @@ import '../../sdk/netease_api.dart';
 ///   是业务流程, 保留在 [LikedAlbumsService]。
 /// - **只做**: 调 API + 解析 ids 字段。
 ///
-/// ## 调试日志
-/// 每个 fetch 方法都通过 `Get.log` 打印入参 / 响应关键字段 / 解析结果,
-/// 用于排查 "对 song 以外的 fetch 处理不正确" 的问题。
-/// 异常 / 字段缺失用 `[WARN]` 前缀。GetX 4.7.3 没有 logW,统一 `Get.log` + 前缀。
-/// 所有日志用 `Get.isLogEnable` 包住:release 自动关,debug 可手动设 true 全开。
+/// **调试日志**:每个 fetch 方法都通过 `Get.log` 打印入参 / 响应关键字段 / 解析结果;
+/// 异常 / 字段缺失用 `[WARN]` 前缀(GetX 4.7.3 没有 logW)。所有日志用
+/// `Get.isLogEnable` 包住:release 自动关,debug 可手动设 true 全开。
 class LikedRepository extends GetxService {
   final NeteaseApi _api;
 
@@ -250,12 +248,9 @@ class LikedRepository extends GetxService {
 
   /// 拉关注的艺人 id 全量列表。
   ///
-  /// API: `/artist/sublist`, 响应:
-  /// ```
-  /// { data: [{ id, ... }, ...], hasMore: ..., count: ... }
-  /// ```
-  /// 顶层字段名是 `data`(2026-08 实测样本: keys=[data, hasMore, count, code])。
-  /// 之前注释误标 `artists`,导致 likedArtistIds 一直空集、UI 显示"未关注"。
+  /// API: `/artist/sublist`, 响应顶层字段是 `data`(2026-08 实测样本:
+  /// keys=[data, hasMore, count, code]);之前注释误标 `artists`,导致 likedArtistIds
+  /// 一直空集、UI 显示"未关注"。
   ///
   /// 返回 null: API 失败。返回空 Set: 拉成功但无关注 / data 字段缺失。
   Future<Set<String>?> fetchLikedArtistIds() async {

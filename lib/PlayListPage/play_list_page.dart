@@ -11,14 +11,11 @@ import '../models/default.dart';
 /// **数据源**:`PlayListController.playlist` getter 转发到 `AudioPlayerService.playlist`
 /// (RxList&lt;Song&gt;)。wrapper 是真相源,handler 的 `_onQueue` 流回推时 UI 自动 rebuild。
 ///
-/// **不调后端**:跟 [SongListBody] 走的"binding + 后端拉歌"路径完全不同
-/// —— 这里是已经存在的 wrapper.playlist,直接渲染即可(所以不复用
+/// **不调后端**:这里是已经存在的 wrapper.playlist,直接渲染即可(所以不复用
 /// SongListBody:那要绑 [SongListBodyController],会让 songs 归谁维护变模糊)。
 ///
-/// **架构边界**:
-/// - AudioPlayerService.playlist: 当前播放队列(handler 维护)
-/// - PlayListController: facade,转 commands 给 wrapper
-/// - PlayListPage: 渲染,读 playlist + 转发点击事件
+/// **架构边界**:AudioPlayerService.playlist 是当前播放队列(handler 维护),
+/// PlayListController 是 facade(转 commands 给 wrapper),本页只渲染 + 转发点击事件。
 class PlayListPage extends StatelessWidget {
   const PlayListPage({super.key});
 

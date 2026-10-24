@@ -10,9 +10,8 @@ import 'repositories/song_repository.dart';
 /// 网易云 `/song/url/v1` 给的是**临时直链**(约 20 分钟失效),提前解析存进队列
 /// 排到队尾就起不来。所以队列里只放一个稳定地址
 /// `http://127.0.0.1:<port>/s/<songId>/<file>?q=<level>`(token 就是 songId,
-/// server 完全无状态,不用注册不用清理),真正 prepare 那一刻才查一次真地址
-/// 再 302 过去。音频数据仍由 mpv / AVPlayer 原生去 CDN 拉,本 server 只多花
-/// 一次 RTT,不碰字节流(所以不用处理 Range / 206 / 流式转发)。
+/// server 完全无状态),真正 prepare 那一刻才查一次真地址再 302 过去。音频数据
+/// 仍由 mpv / AVPlayer 原生去 CDN 拉,本 server 只多花一次 RTT,不碰字节流。
 ///
 /// 这也是 Dart 层唯一能拦到"原生播放器真实请求"的地方 —— mpv / ExoPlayer 的
 /// socket 不经过 Dart VM,HttpClient / HttpOverrides / Dio 全都看不见。
@@ -21,10 +20,9 @@ import 'repositories/song_repository.dart';
 /// 可选加速层不是单点。
 ///
 /// **平台前置配置(缺了就连不上)**:
-/// - Android `minSdk = 31`,API 37 以下 loopback 的 cleartext 默认被拦(官方只对
-///   API 37+ 隐式放行)。需 `res/xml/network_security_config.xml` 只对
-///   127.0.0.1 / localhost 放行 + manifest 挂 `android:networkSecurityConfig`。
-///   (mpv 是原生 C 层本来不受它管,但 ExoPlayer 回退路径走 HttpURLConnection。)
+/// - Android `minSdk = 31`,API 37 以下 loopback 的 cleartext 默认被拦。需
+///   `res/xml/network_security_config.xml` 只对 127.0.0.1 / localhost 放行 +
+///   manifest 挂 `android:networkSecurityConfig`。
 /// - iOS ATS 要开 `NSAllowsLocalNetworking`。
 /// - Web:`dart:io` 不存在,本 service 不启用([enabled] 恒 false)。
 /// - mpv:`JustAudioMediaKit.protocolWhitelist` 必须含 `ytdl`,否则 mpv 会把
