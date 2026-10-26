@@ -1,8 +1,8 @@
 import 'package:audio_service/audio_service.dart' show MediaItem;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart' show ProcessingState;
-import 'package:oceanus/models/snapshot.dart';
-import 'package:oceanus/models/song.dart';
+import 'package:oceanus/app/data/models/snapshot.dart';
+import 'package:oceanus/app/data/models/song.dart';
 
 PlaybackSnapshot _snapshot({
   bool isPlaying = false,

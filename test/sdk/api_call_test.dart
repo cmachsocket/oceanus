@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:oceanus/models/api_exception.dart';
+import 'package:oceanus/app/data/models/api_exception.dart';
 import 'package:oceanus/sdk/api_call.dart';
 import 'package:oceanus/sdk/music_response.dart';
 

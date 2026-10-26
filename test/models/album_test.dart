@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:oceanus/models/album.dart';
+import 'package:oceanus/app/data/models/album.dart';
 
 void main() {
   group('Album.fromNeteaseJson', () {

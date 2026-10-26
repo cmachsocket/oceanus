@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
-import 'package:oceanus/SettingsPage/about_page.dart';
+import 'package:oceanus/app/modules/settings/views/about_page.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 void main() {

@@ -4,11 +4,11 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 import 'package:just_audio/just_audio.dart' show ProcessingState;
-import 'package:oceanus/models/snapshot.dart';
-import 'package:oceanus/models/song.dart';
+import 'package:oceanus/app/data/models/snapshot.dart';
+import 'package:oceanus/app/data/models/song.dart';
 import 'package:oceanus/sdk/music_response.dart';
-import 'package:oceanus/services/audio_player_wrapper.dart';
-import 'package:oceanus/services/lyrics_server_service.dart';
+import 'package:oceanus/app/services/audio_player_wrapper.dart';
+import 'package:oceanus/app/services/lyrics_server_service.dart';
 
 import '../helpers/test_env.dart';
 

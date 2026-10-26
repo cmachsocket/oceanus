@@ -1,11 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
-import 'package:oceanus/models/api_exception.dart';
-import 'package:oceanus/models/library_summary.dart' show PlaylistSource;
-import 'package:oceanus/models/song.dart';
+import 'package:oceanus/app/data/models/api_exception.dart';
+import 'package:oceanus/app/data/models/library_summary.dart'
+    show PlaylistSource;
+import 'package:oceanus/app/data/models/song.dart';
 import 'package:oceanus/sdk/music_response.dart';
-import 'package:oceanus/SongListPage/songlist_body_controller.dart';
-import 'package:oceanus/services/audio_player_wrapper.dart';
+import 'package:oceanus/app/modules/song_list/controllers/song_list_body_controller.dart';
+import 'package:oceanus/app/services/audio_player_wrapper.dart';
 
 import '../helpers/test_env.dart';
 

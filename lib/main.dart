@@ -7,32 +7,32 @@ import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'app_shell.dart';
-import 'app_shell_controller.dart';
-import 'PlayPage/lyrics_controller.dart';
-import 'PlayPage/player_controller.dart';
-import 'SettingsPage/settings_controller.dart';
-import 'services/audio_player_wrapper.dart';
-import 'services/app_shutdown.dart';
-import 'services/lyrics_server_service.dart';
+import 'app/modules/shell/bindings/app_shell_binding.dart';
+import 'app/modules/shell/views/app_shell.dart';
+import 'app/modules/player/controllers/lyrics_controller.dart';
+import 'app/modules/player/controllers/player_controller.dart';
+import 'app/modules/settings/controllers/settings_controller.dart';
+import 'app/services/audio_player_wrapper.dart';
+import 'app/services/app_shutdown.dart';
+import 'app/services/lyrics_server_service.dart';
 import 'sdk/netease_api.dart';
-import 'services/liked_controller.dart';
-import 'services/repositories/lyrics_repository.dart';
-import 'services/repositories/song_repository.dart';
-import 'services/repositories/liked_repository.dart';
-import 'services/repositories/search_repository.dart';
-import 'services/repositories/playlist_repository.dart';
-import 'services/repositories/album_repository.dart';
-import 'services/repositories/artist_repository.dart';
-import 'services/playlist_events_controller.dart';
-import 'services/repositories/library_repository.dart';
+import 'app/services/liked_controller.dart';
+import 'app/data/repositories/lyrics_repository.dart';
+import 'app/data/repositories/song_repository.dart';
+import 'app/data/repositories/liked_repository.dart';
+import 'app/data/repositories/search_repository.dart';
+import 'app/data/repositories/playlist_repository.dart';
+import 'app/data/repositories/album_repository.dart';
+import 'app/data/repositories/artist_repository.dart';
+import 'app/services/playlist_events_controller.dart';
+import 'app/data/repositories/library_repository.dart';
 import 'sdk/auth_controller.dart';
-import 'services/download_service.dart';
-import 'services/local_redirect_server.dart';
-import 'services/tray_controller.dart';
-import 'theme/theme_controller.dart';
-import 'widgets/netease_image.dart' show NeteaseHttpOverrides;
-import 'models/default.dart';
+import 'app/services/download_service.dart';
+import 'app/services/local_redirect_server.dart';
+import 'app/services/tray_controller.dart';
+import 'app/theme/controllers/theme_controller.dart';
+import 'app/widgets/netease_image.dart' show NeteaseHttpOverrides;
+import 'app/core/constants/default_values.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -82,7 +82,7 @@ Future<void> main() async {
     LibraryRepository(Get.find<NeteaseApi>()),
     permanent: true,
   );
-  // AuthController 是全局凭证持有者 (lib/controller/), 持有 AuthInfo (cookie + loggedIn + uid)
+  // AuthController 是全局凭证持有者 (lib/sdk/auth_controller.dart), 持有 AuthInfo (cookie + loggedIn + uid)
   // 真正的 SDK 调用走 NeteaseApi, LoginController 等 UI 层从这里拿凭证
   await Get.putAsync<AuthController>(() async {
     final controller = AuthController();

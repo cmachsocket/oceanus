@@ -1,7 +1,7 @@
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:oceanus/widgets/song_cover.dart';
+import 'package:oceanus/app/widgets/song_cover.dart';
 
 void main() {
   Widget wrap(Widget child) => MaterialApp(

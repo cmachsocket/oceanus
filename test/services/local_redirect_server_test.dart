@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 import 'package:oceanus/sdk/music_response.dart';
-import 'package:oceanus/services/local_redirect_server.dart';
-import 'package:oceanus/services/repositories/song_repository.dart';
+import 'package:oceanus/app/services/local_redirect_server.dart';
+import 'package:oceanus/app/data/repositories/song_repository.dart';
 
 import '../helpers/test_env.dart';
 

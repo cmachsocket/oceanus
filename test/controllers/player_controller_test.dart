@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 import 'package:just_audio/just_audio.dart' show ProcessingState;
-import 'package:oceanus/PlayPage/player_controller.dart';
-import 'package:oceanus/models/snapshot.dart';
-import 'package:oceanus/models/song.dart';
-import 'package:oceanus/services/audio_player_wrapper.dart';
+import 'package:oceanus/app/modules/player/controllers/player_controller.dart';
+import 'package:oceanus/app/data/models/snapshot.dart';
+import 'package:oceanus/app/data/models/song.dart';
+import 'package:oceanus/app/services/audio_player_wrapper.dart';
 
 import '../helpers/test_env.dart';
 

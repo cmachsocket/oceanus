@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
-import 'package:oceanus/models/api_exception.dart';
+import 'package:oceanus/app/data/models/api_exception.dart';
 import 'package:oceanus/sdk/music_response.dart';
-import 'package:oceanus/services/liked_controller.dart';
+import 'package:oceanus/app/services/liked_controller.dart';
 
 import '../helpers/test_env.dart';
 

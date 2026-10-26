@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
-import 'package:oceanus/PlayPage/lyrics_controller.dart';
-import 'package:oceanus/models/lyrics.dart';
-import 'package:oceanus/services/audio_player_wrapper.dart';
+import 'package:oceanus/app/modules/player/controllers/lyrics_controller.dart';
+import 'package:oceanus/app/data/models/lyrics.dart';
+import 'package:oceanus/app/services/audio_player_wrapper.dart';
 
 import '../helpers/test_env.dart';
 

@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
-import 'package:oceanus/SettingsPage/settings_controller.dart';
-import 'package:oceanus/theme/theme_controller.dart';
+import 'package:oceanus/app/modules/settings/controllers/settings_controller.dart';
+import 'package:oceanus/app/theme/controllers/theme_controller.dart';
 
 import '../helpers/test_env.dart';
 

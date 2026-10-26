@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 import 'package:oceanus/sdk/netease_api.dart';
-import 'package:oceanus/services/app_shutdown.dart';
-import 'package:oceanus/services/audio_player_wrapper.dart';
-import 'package:oceanus/services/local_redirect_server.dart';
-import 'package:oceanus/services/lyrics_server_service.dart';
+import 'package:oceanus/app/services/app_shutdown.dart';
+import 'package:oceanus/app/services/audio_player_wrapper.dart';
+import 'package:oceanus/app/services/local_redirect_server.dart';
+import 'package:oceanus/app/services/lyrics_server_service.dart';
 
 import '../helpers/test_env.dart';
 

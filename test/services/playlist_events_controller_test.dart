@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:oceanus/services/playlist_events_controller.dart';
+import 'package:oceanus/app/services/playlist_events_controller.dart';
 
 void main() {
   late PlaylistEventsController controller;

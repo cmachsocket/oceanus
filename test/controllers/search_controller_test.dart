@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 import 'package:oceanus/sdk/music_response.dart';
-import 'package:oceanus/searchPage/search_controller.dart';
-import 'package:oceanus/services/audio_player_wrapper.dart';
-import 'package:oceanus/services/repositories/search_repository.dart';
+import 'package:oceanus/app/modules/search/controllers/search_controller.dart';
+import 'package:oceanus/app/services/audio_player_wrapper.dart';
+import 'package:oceanus/app/data/repositories/search_repository.dart';
 
 import '../helpers/test_env.dart';
 

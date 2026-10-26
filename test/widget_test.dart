@@ -6,11 +6,11 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
-import 'package:oceanus/PlayPage/player_controller.dart';
+import 'package:oceanus/app/modules/player/controllers/player_controller.dart';
 import 'package:oceanus/main.dart';
-import 'package:oceanus/models/default.dart';
-import 'package:oceanus/services/audio_player_wrapper.dart';
-import 'package:oceanus/theme/theme_controller.dart';
+import 'package:oceanus/app/core/constants/default_values.dart';
+import 'package:oceanus/app/services/audio_player_wrapper.dart';
+import 'package:oceanus/app/theme/controllers/theme_controller.dart';
 
 import 'helpers/test_env.dart';
 

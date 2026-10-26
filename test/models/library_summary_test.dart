@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:oceanus/models/library_summary.dart';
+import 'package:oceanus/app/data/models/library_summary.dart';
 
 void main() {
   group('PlaylistCard.fromNeteaseJson', () {

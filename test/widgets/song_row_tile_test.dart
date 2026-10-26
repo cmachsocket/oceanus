@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
-import 'package:oceanus/SettingsPage/settings_controller.dart';
-import 'package:oceanus/SongListPage/song_row_tile.dart';
-import 'package:oceanus/models/song.dart';
+import 'package:oceanus/app/modules/settings/controllers/settings_controller.dart';
+import 'package:oceanus/app/modules/song_list/widgets/song_row_tile.dart';
+import 'package:oceanus/app/data/models/song.dart';
 
 import '../helpers/test_env.dart';
 

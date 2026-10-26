@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:oceanus/models/download_task_view.dart';
-import 'package:oceanus/models/song.dart';
+import 'package:oceanus/app/data/models/download_task_view.dart';
+import 'package:oceanus/app/data/models/song.dart';
 
 void main() {
   const song = Song(

@@ -29,7 +29,7 @@
 ```
 UI (GetX Controller)
    ↓
-services/repositories/*.dart          ← 唯一调 API 的地方
+app/data/repositories/*.dart          ← 唯一调 API 的地方
    ↓
 NeteaseApi.callApi(method, [位置参数])  ← lib/sdk/netease_api.dart
    ↓  positionalToQuery()               ← lib/sdk/method_spec.dart
@@ -84,14 +84,14 @@ await initNeteaseApi();   // 创建 facade + 启动 NcmApi + 灌回 cookie
 ### 退出
 
 node 子进程必须显式关闭,否则 Flutter 先退出会留下孤儿进程。
-`lib/services/app_shutdown.dart` 负责统一收尾(幂等,5s 兜底超时,每步 best-effort):
+`lib/app/services/app_shutdown.dart` 负责统一收尾(幂等,5s 兜底超时,每步 best-effort):
 
 ```
 audio → netease-api(node bridge) → redirect-server → lyrics-server → tray
 ```
 
 触发点:
-- 托盘"退出"菜单 / 窗口关闭 → `lib/services/tray_controller.dart`
+- 托盘"退出"菜单 / 窗口关闭 → `lib/app/services/tray_controller.dart`
 - macOS Cmd+Q / 桌面会话登出 → `lib/main.dart` 的 `AppLifecycleListener(onExitRequested:)`
 
 `NeteaseApi.shutdown()` 本身幂等(`_shutdownFuture ??=`),`onClose()` 里兜底再调一次。
@@ -255,7 +255,7 @@ GetStorage default box:
 **成功判定 = cookie 非空,不是响应 code。**
 业务 code 200 但 cookie 缺失,基本就是被云盾拦了 / 风控重定向。
 
-UI 层(`lib/SettingsPage/login_controller.dart`)只管手机号 / 验证码格式校验、60s 倒计时、snackbar,不碰 SDK。
+UI 层(`lib/app/modules/settings/controllers/login_controller.dart`)只管手机号 / 验证码格式校验、60s 倒计时、snackbar,不碰 SDK。
 
 ### 5.5 游客 cookie
 
@@ -366,7 +366,7 @@ Future<MusicResponse> apiCall(
 }
 ```
 
-`ApiException`(`lib/models/api_exception.dart`):
+`ApiException`(`lib/app/data/models/api_exception.dart`):
 
 | 常量 | code | 含义 |
 | --- | --- | --- |
@@ -402,7 +402,7 @@ lib/sdk/
   music_response.dart   上游 Response → MusicResponse
   api_call.dart         apiCall() + checkResponse()
   auth_controller.dart  登录凭证全局持有者
-lib/services/repositories/
+lib/app/data/repositories/
   song_repository.dart      song_url_v1 / song_detail
   playlist_repository.dart  playlist_detail / playlist_track_all / playlist_create
                            playlist_tracks / playlist_delete
@@ -422,8 +422,8 @@ lib/services/repositories/
 ### 8.2 加一个新接口的完整步骤
 
 1. `lib/sdk/method_spec.dart` → 追加 `MethodSpec`
-2. `lib/services/repositories/xxx_repository.dart` → 加方法,内部 `_api.callApi(...)`
-3. 需要新响应模型 → `lib/models/xxx.dart` 加 `Xxx.fromNeteaseJson`
+2. `lib/app/data/repositories/xxx_repository.dart` → 加方法,内部 `_api.callApi(...)`
+3. 需要新响应模型 → `lib/app/data/models/xxx.dart` 加 `Xxx.fromNeteaseJson`
 4. `flutter analyze` + `flutter test`
 
 ### 8.3 响应解析约定
@@ -436,7 +436,7 @@ lib/services/repositories/
 | `Artist` | `briefDesc`/`desc`→bio、`picUrl`→photoUrl、`musicSize`→songCount、`albumSize`→albumCount、`fans`→fanCount |
 | `Album` | `artists[0].name`→artist、`picUrl`→coverUrl、`size`→songCount、`publishTime`(ms)→releaseDate、`type`→`AlbumType` |
 
-位置: `lib/models/song.dart`、`lib/models/artist.dart`、`lib/models/album.dart`、`lib/models/library_summary.dart`。
+位置: `lib/app/data/models/song.dart`、`lib/app/data/models/artist.dart`、`lib/app/data/models/album.dart`、`lib/app/data/models/library_summary.dart`。
 
 ---
 
@@ -464,7 +464,7 @@ lib/services/repositories/
   - 上游 `SoundQualityType` 枚举里没有 `higher`,但实际请求可用
   - 上游还支持 `jyeffect` / `jymaster` / `sky` / `vivid`,项目未在 UI 里暴露
 - 播放地址是**临时直链**,过期约 20 分钟 —— 本项目用本机 302 定向 server
-  (`lib/services/local_redirect_server.dart`)兜住
+  (`lib/app/services/local_redirect_server.dart`)兜住
 
 ### 9.4 必选参数缺失
 
@@ -477,7 +477,7 @@ lib/services/repositories/
 | --- | --- |
 | 依赖解析到 hosted 版本 | `pubspec.yaml` 的注释指向本地 checkout(`/home/cmach_socket/projects/ncm_api_enhanced`,0.3.0),但**没有 `path:` 覆盖**,实际用的是 pub.dev 上的 **0.2.2**。两者公开 API 一致,但 0.3.0 修了 `noSuchMethod` 具名参数的 `Symbol("...")` 剥离 bug —— 0.2.2 下 `api.album(id: 1)` 会把 key 变成 `Symbol("id")`。项目统一走 `api.call(method, query)`,不受影响。 |
 | 上游 d.ts 与 module 文件不同步 | `interface.d.ts` 里声明了 6 个没有对应 module 文件的函数(`comment_hotwall_list`、`listen_together_status`、`user_safe`、`yunbei_ad_task_*`);另有 7 个 module 文件没有 d.ts 签名(`like_v1`、`song_simi_get`、`song_wiki_info`、`yunbei_task_*_v1` 等)。调用会走到 node 侧的 unknown method。 |
-| `lyric_new` 逐字歌词 | 返回 `yrc.lyric`,格式为 `[行起始ms,行时长ms,字起始ms,字时长(厘秒),?,文字]`,与上游 Python SDK 的字段顺序不同。解析见 `lib/services/repositories/lyrics_repository.dart`。 |
+| `lyric_new` 逐字歌词 | 返回 `yrc.lyric`,格式为 `[行起始ms,行时长ms,字起始ms,字时长(厘秒),?,文字]`,与上游 Python SDK 的字段顺序不同。解析见 `lib/app/data/repositories/lyrics_repository.dart`。 |
 
 ---
 

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:oceanus/models/song.dart';
-import 'package:oceanus/widgets/linked_detail_text.dart';
+import 'package:oceanus/app/data/models/song.dart';
+import 'package:oceanus/app/widgets/linked_detail_text.dart';
 
 void main() {
   Widget wrap(Widget child) => MaterialApp(

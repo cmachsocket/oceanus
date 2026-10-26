@@ -3,7 +3,7 @@ library;
 
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:get/get.dart';
-import '../models/auth_info.dart';
+import '../app/data/models/auth_info.dart';
 import 'netease_api.dart';
 
 class AuthController extends GetxController {

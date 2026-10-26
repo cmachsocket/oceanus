@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import '../models/api_exception.dart';
+import '../app/data/models/api_exception.dart';
 import 'music_response.dart';
 
 /// 调一次接口:把 RPC / 解析 / 网络异常统一包成 [ApiException],

@@ -16,23 +16,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:ncm_api_enhanced/ncm_api_enhanced.dart';
-import 'package:oceanus/SettingsPage/settings_controller.dart';
-import 'package:oceanus/models/snapshot.dart' show PlayOrder;
-import 'package:oceanus/models/song.dart';
+import 'package:oceanus/app/modules/settings/controllers/settings_controller.dart';
+import 'package:oceanus/app/data/models/snapshot.dart' show PlayOrder;
+import 'package:oceanus/app/data/models/song.dart';
 import 'package:oceanus/sdk/auth_controller.dart';
 import 'package:oceanus/sdk/music_response.dart';
 import 'package:oceanus/sdk/netease_api.dart';
-import 'package:oceanus/services/audio_player_wrapper.dart';
-import 'package:oceanus/services/liked_controller.dart';
-import 'package:oceanus/services/playlist_events_controller.dart';
-import 'package:oceanus/services/repositories/album_repository.dart';
-import 'package:oceanus/services/repositories/artist_repository.dart';
-import 'package:oceanus/services/repositories/library_repository.dart';
-import 'package:oceanus/services/repositories/liked_repository.dart';
-import 'package:oceanus/services/repositories/lyrics_repository.dart';
-import 'package:oceanus/services/repositories/playlist_repository.dart';
-import 'package:oceanus/services/repositories/search_repository.dart';
-import 'package:oceanus/services/repositories/song_repository.dart';
+import 'package:oceanus/app/services/audio_player_wrapper.dart';
+import 'package:oceanus/app/services/liked_controller.dart';
+import 'package:oceanus/app/services/playlist_events_controller.dart';
+import 'package:oceanus/app/data/repositories/album_repository.dart';
+import 'package:oceanus/app/data/repositories/artist_repository.dart';
+import 'package:oceanus/app/data/repositories/library_repository.dart';
+import 'package:oceanus/app/data/repositories/liked_repository.dart';
+import 'package:oceanus/app/data/repositories/lyrics_repository.dart';
+import 'package:oceanus/app/data/repositories/playlist_repository.dart';
+import 'package:oceanus/app/data/repositories/search_repository.dart';
+import 'package:oceanus/app/data/repositories/song_repository.dart';
 
 /// 不做任何 IPC 的假 bridge。
 ///
